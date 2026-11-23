@@ -16,6 +16,8 @@ describe('AuthorizationService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.space.findUnique.mockResolvedValue({ id: 'space-1', deletedAt: null });
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'owner', space: { deletedAt: null } });
+    prisma.spaceMember.findMany.mockResolvedValue([]);
   });
 
   it('denies users who are not members of a space', async () => {
@@ -191,7 +193,34 @@ describe('AuthorizationService', () => {
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
   });
 
-  it('uses the bound Grant role as the only Agent permission source', async () => {
+  it('limits an Agent to the live role of its owner in the target Space', async () => {
+    const principal = { userId: 'owner-1', agentId: 'agent-1', credentialId: 'key-1' };
+    const grant = {
+      id: 'grant-1', role: 'publisher', folderScopes: ['folders:read', 'folders:write', 'folders:delete'],
+      agent: { status: 'active', revokedAt: null }, space: { id: 'space-1', name: 'Space 1', deletedAt: null },
+    };
+    prisma.agentGrant.findUnique.mockResolvedValue(grant);
+    prisma.agentGrant.findMany.mockResolvedValue([grant]);
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'viewer' });
+    prisma.spaceMember.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'viewer' }]);
+
+    await expect(service.assertSpaceAccess(principal, 'space-1'))
+      .resolves.toMatchObject({ role: 'reader', folderScopes: ['folders:read'] });
+    await expect(service.assertSpaceAccess(principal, 'space-1', ['owner', 'editor'], 'pages:write'))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    await expect(service.listAccessibleSpaces(principal)).resolves.toEqual([
+      { id: 'space-1', name: 'Space 1', role: 'reader' },
+    ]);
+
+    prisma.spaceMember.findUnique.mockResolvedValue(null);
+    prisma.spaceMember.findMany.mockResolvedValue([]);
+    await expect(service.assertSpaceAccess(principal, 'space-1'))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    await expect(service.getAccessibleSpaceIds(principal)).resolves.toEqual([]);
+    expect(grant.role).toBe('publisher');
+  });
+
+  it('uses the persisted Grant instead of stale role hints', async () => {
     prisma.agentGrant.findUnique.mockResolvedValue({
       id: 'grant-1', role: 'editor',
       agent: { status: 'active', revokedAt: null },
@@ -299,6 +328,7 @@ describe('AuthorizationService live Agent Folder access', () => {
     agent: { findUnique: jest.fn(async () => liveState.agent) },
     agentGrant: { findUnique: jest.fn(async () => liveState.grant) },
     space: { findUnique: jest.fn(async () => liveState.space) },
+    spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
   } as any;
   const prisma = {
     $transaction: jest.fn(async (operation: (db: typeof tx) => Promise<unknown>) => operation(tx)),
@@ -382,6 +412,7 @@ describe('space discovery and self-describing errors', () => {
   });
 
   it('lists accessible spaces with id, name and role for an agent', async () => {
+    prisma.spaceMember.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'owner' }]);
     prisma.agentGrant.findMany.mockResolvedValue([
       { role: 'editor', space: { id: 'space-1', name: 'MySpace', deletedAt: null } },
     ]);
@@ -397,7 +428,8 @@ describe('space discovery and self-describing errors', () => {
   });
 
   it('returns all live accessible Space ids', async () => {
-    prisma.agentGrant.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'editor' }]);
+    prisma.spaceMember.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'owner' }]);
+    prisma.agentGrant.findMany.mockResolvedValue([{ role: 'editor', space: { id: 'space-1', name: 'MySpace', deletedAt: null } }]);
 
     await expect(service.getAccessibleSpaceIds(
       { userId: 'user-1', agentId: 'agent-1', authorizationId: 'grant-1' },

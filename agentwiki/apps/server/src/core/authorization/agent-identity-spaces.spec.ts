@@ -6,6 +6,10 @@ describe('one Agent identity across live Space grants', () => {
   const grants = new Map<string, any>();
   const prisma: any = {
     space: { findUnique: jest.fn(async ({ where }) => ({ id: where.id, deletedAt: null })) },
+    spaceMember: {
+      findUnique: jest.fn(async () => ({ role: 'owner' })),
+      findMany: jest.fn(async () => [...grants.keys()].map(spaceId => ({ spaceId, role: 'owner' }))),
+    },
     agentGrant: {
       findUnique: jest.fn(async ({ where }) => grants.get(where.agentId_spaceId.spaceId) ?? null),
       findMany: jest.fn(async ({ where }) => [...grants.values()].filter(g => !where.id || g.id === where.id)),
@@ -32,7 +36,7 @@ describe('one Agent identity across live Space grants', () => {
     grants.delete('space-a');
     await expect(authorization.assertSpaceAccess(principal, 'space-a')).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
     await expect(authorization.assertSpaceAccess(principal, 'space-b', ['editor'], 'pages:write')).resolves.toMatchObject({ role: 'publisher' });
-    grants.set('space-c', { ...grants.get('space-b'), id: 'grant-c', spaceId: 'space-c' });
+    grants.set('space-c', { ...grants.get('space-b'), id: 'grant-c', spaceId: 'space-c', space: { id: 'space-c', name: 'space-c', deletedAt: null } });
     await expect(authorization.assertSpaceAccess(principal, 'space-c')).resolves.toMatchObject({ id: 'grant-c' });
   });
   it('authenticates an identity without depending on any Space grant', async () => {

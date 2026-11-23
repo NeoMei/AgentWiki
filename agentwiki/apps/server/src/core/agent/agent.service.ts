@@ -4,11 +4,17 @@ import { createHash } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateAgentDto, UpdateAgentDto } from '../dto/agent.dto';
 import {
+  AGENT_ACCESS_ROLES,
   folderScopesForAgentAccessRole,
   scopesForAgentGrant,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
 import type { SpaceRole } from '../authorization/authorization.service';
+import { assertCurrentOnboardingAuthorization } from '../../onboard/onboarding-authorization';
+import type { OnboardingPrincipal } from '../../onboard/onboarding-token.guard';
+import { capAgentGrant, capAgentRole } from '../authorization/agent-owner-role';
+import { BusinessException } from '../filters/business-error';
+import { lockConnectionOwner, readPersonalKeyRotation } from '../user/personal-key-rotation';
 
 @Injectable()
 export class AgentService {
@@ -49,28 +55,42 @@ export class AgentService {
   }
 
   async list(ownerId: string, includeArchived = false) {
+    const now = new Date();
     const agents = await this.prisma.agent.findMany({
       where: { ownerId, revokedAt: null, ...(!includeArchived ? { status: { not: 'archived' } } : {}) },
       include: {
         owner: { select: { id: true, name: true, email: true } },
         grants: { include: { space: { select: { id: true, name: true } } } },
         _count: { select: { credentials: true, auditEvents: true } },
+        credentials: {
+          where: {
+            OR: [
+              { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+              this.previouslyUsableCredential(),
+            ],
+          },
+          orderBy: { revokedAt: { sort: 'desc', nulls: 'first' } },
+          take: 1,
+          select: { revokedAt: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
-    return agents.map((agent) => ({
+    return agents.map(({ credentials, ...agent }) => ({
       ...agent,
+      reconnectRequired: agent.status === 'active' && Boolean(credentials?.[0]?.revokedAt),
       credentialScope: 'agent' as const,
       grants: agent.grants.map((grant) => this.grantResponse(grant)),
     }));
   }
 
-  async getOwned(ownerId: string, id: string) {
-    const agent = await this.prisma.agent.findUnique({
+  async getOwned(ownerId: string, id: string, tx: Prisma.TransactionClient = this.prisma) {
+    const agent = await tx.agent.findUnique({
       where: { id },
       include: {
         owner: { select: { id: true, name: true, email: true } },
         grants: { include: { space: { select: { id: true, name: true } } } },
+        _count: { select: { credentials: { where: this.previouslyUsableCredential() } } },
         credentials: {
           where: { revokedAt: null },
           select: {
@@ -82,8 +102,13 @@ export class AgentService {
     });
     if (!agent || agent.revokedAt) throw new NotFoundException('Agent not found');
     if (agent.ownerId !== ownerId) throw new ForbiddenException('You do not own this agent');
+    const { _count, ...owned } = agent;
+    const now = Date.now();
     return {
-      ...agent,
+      ...owned,
+      reconnectRequired: agent.status === 'active'
+        && (_count?.credentials ?? 0) > 0
+        && !owned.credentials.some(({ expiresAt }) => !expiresAt || expiresAt.getTime() > now),
       credentialScope: 'agent' as const,
       grants: (agent.grants ?? []).map((grant) => this.grantResponse(grant)),
       credentials: (agent.credentials ?? []).map((credential) => ({
@@ -169,27 +194,32 @@ export class AgentService {
     spaceId: string,
     _isSuperAdmin = false,
     requestedRole: AgentAccessRole = 'publisher',
-  ): Promise<void> {
-    const agent = await this.getOwned(ownerId, agentId);
-    if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
-    const space: any = await this.prisma.space.findFirst({
-      where: {
-        id: spaceId,
-        deletedAt: null,
-        members: requestedRole === 'publisher'
-          ? { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } }
-          : { some: { userId: ownerId } },
-      },
-      select: requestedRole === 'publisher'
-        ? { id: true }
-        : { id: true, members: { where: { userId: ownerId }, select: { role: true } } },
+    onboarding?: OnboardingPrincipal,
+  ): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockConnectionOwner(tx, ownerId);
+      if (onboarding) {
+        if (onboarding.userId !== ownerId) throw new BusinessException('AUTH_DENIED');
+        await assertCurrentOnboardingAuthorization(tx, onboarding);
+      }
+      const agent = await this.getOwned(ownerId, agentId, tx);
+      if (agent.status !== 'active') throw new BadRequestException('Agent must be active');
+      const space = await tx.space.findFirst({
+        where: {
+          id: spaceId,
+          deletedAt: null,
+          members: requestedRole === 'publisher'
+            ? { some: { userId: ownerId, role: { in: ['owner', 'admin'] } } }
+            : { some: { userId: ownerId } },
+        },
+        select: { id: true, members: { where: { userId: ownerId }, select: { role: true } } },
+      });
+      const memberRole = space?.members?.[0]?.role;
+      if (!memberRole || !canDelegateAgentRole(memberRole, requestedRole)) {
+        throw new ForbiddenException('You cannot authorize this Agent for the Space');
+      }
+      return readPersonalKeyRotation(tx, ownerId);
     });
-    const memberRole = requestedRole === 'publisher'
-      ? (space ? 'admin' : undefined)
-      : (space?.members?.[0]?.role as SpaceRole | undefined);
-    if (!space || !memberRole || !canDelegateAgentRole(memberRole, requestedRole)) {
-      throw new ForbiddenException('You cannot authorize this Agent for the Space');
-    }
   }
 
   async exchangeConnectionIntent(input: {
@@ -199,9 +229,12 @@ export class AgentService {
     role: AgentAccessRole;
     installationId: string;
     rawKey: string;
+    personalKeyRotation?: number;
+    expiresAt?: Date;
   }): Promise<{
     id: string;
     grantId: string;
+    grantRole: AgentAccessRole;
     agentId: string;
     role: AgentAccessRole;
     scopes: string[];
@@ -212,6 +245,12 @@ export class AgentService {
       await this.lockAgentAuthorizationMutationRows(
         tx, input.ownerId, input.agentId, input.spaceId, true,
       );
+      if ((input.personalKeyRotation ?? 0) !== await readPersonalKeyRotation(tx, input.ownerId)) {
+        throw new BusinessException('LOCAL_SYNC_CODE_INVALID');
+      }
+      if (input.expiresAt && input.expiresAt.getTime() <= Date.now()) {
+        throw new BusinessException('LOCAL_SYNC_CODE_EXPIRED');
+      }
       const owner = await tx.user.findFirst({
         where: {
           id: input.ownerId,
@@ -238,29 +277,24 @@ export class AgentService {
         },
         select: { id: true, members: { where: { userId: input.ownerId }, select: { role: true } } },
       });
-      const memberRole = space?.members?.[0]?.role as SpaceRole | undefined;
+      const memberRole = space?.members?.[0]?.role;
       if (!owner || !agent || !space || !memberRole || !canDelegateAgentRole(memberRole, input.role)) {
         throw new ForbiddenException('Connection authorization is no longer valid');
       }
 
       const keyHash = createHash('sha256').update(input.rawKey).digest('hex');
-      const previousGrant = await tx.agentGrant.findUnique({
-        where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
-        select: { role: true },
-      });
-      const grant = await tx.agentGrant.upsert({
-        where: { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } },
-        create: {
-          agentId: input.agentId,
-          spaceId: input.spaceId,
-          role: input.role,
-          folderScopes: folderScopesForAgentAccessRole(input.role),
-        },
-        update: {
-          role: input.role,
-          folderScopes: folderScopesForAgentAccessRole(input.role),
-        },
-        select: { id: true, role: true, folderScopes: true },
+      const grantWhere = { agentId_spaceId: { agentId: input.agentId, spaceId: input.spaceId } };
+      const grantSelect = { id: true, role: true, folderScopes: true } as const;
+      const previousGrant = await tx.agentGrant.findUnique({ where: grantWhere, select: grantSelect });
+      const roleUpdate = { role: input.role, folderScopes: folderScopesForAgentAccessRole(input.role) };
+      // Reconnecting with the existing role preserves its grant and folder scopes.
+      const existingAccess = previousGrant && capAgentGrant(previousGrant, memberRole);
+      const reuseGrant = existingAccess?.role === input.role;
+      const grant = reuseGrant ? existingAccess : await tx.agentGrant.upsert({
+        where: grantWhere,
+        create: { agentId: input.agentId, spaceId: input.spaceId, ...roleUpdate },
+        update: roleUpdate,
+        select: grantSelect,
       });
       const credential = await tx.agentCredential.upsert({
         where: { localSyncInstallationId: input.installationId },
@@ -277,16 +311,18 @@ export class AgentService {
           agentId: true,
           keyHash: true,
           revokedAt: true,
+          expiresAt: true,
         },
       });
       if (
         credential.agentId !== input.agentId
         || credential.keyHash !== keyHash
         || credential.revokedAt
+        || (credential.expiresAt && credential.expiresAt.getTime() <= Date.now())
       ) {
         throw new ForbiddenException('Connection credential is unavailable');
       }
-      if (input.role === 'publisher') {
+      if (input.role === 'publisher' && !reuseGrant) {
         await tx.agent.update({
           where: { id: input.agentId },
           data: { approvalMode: 'scoped-auto-publish' },
@@ -309,6 +345,7 @@ export class AgentService {
       return {
         id: credential.id,
         grantId: grant.id,
+        grantRole: reuseGrant && previousGrant ? previousGrant.role : grant.role,
         agentId: credential.agentId,
         role: grant.role,
         scopes: scopesForAgentGrant(grant.role, grant.folderScopes),
@@ -323,51 +360,63 @@ export class AgentService {
     agentId: string;
     credentialId: string;
     grantId: string;
+    grantRole?: AgentAccessRole;
     spaceId: string;
     role: AgentAccessRole;
   }): Promise<{ scopes: string[] }> {
-    const [credential, grant] = await Promise.all([
-      this.prisma.agentCredential.findFirst({
-        where: {
-          id: input.credentialId,
-          agentId: input.agentId,
-          revokedAt: null,
-          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-          agent: {
-            ownerId: input.ownerId,
-            status: 'active',
+    return this.prisma.$transaction(async (tx) => {
+      await lockConnectionOwner(tx, input.ownerId);
+      const grantRole = input.grantRole ?? input.role;
+      const [credential, grant] = await Promise.all([
+        tx.agentCredential.findFirst({
+          where: {
+            id: input.credentialId,
+            agentId: input.agentId,
             revokedAt: null,
-            owner: { deletedAt: null, lockedAt: null },
+            OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+            agent: {
+              ownerId: input.ownerId,
+              status: 'active',
+              revokedAt: null,
+              owner: { deletedAt: null, lockedAt: null },
+            },
           },
-        },
-        select: { id: true },
-      }),
-      this.prisma.agentGrant.findFirst({
-        where: {
-          id: input.grantId,
-          agentId: input.agentId,
-          spaceId: input.spaceId,
-          role: input.role,
-        },
-        select: {
-          id: true,
-          role: true,
-          folderScopes: true,
-          space: { select: { deletedAt: true } },
-        },
-      }),
-    ]);
-    if (
-      !credential
-      || !grant
-      || credential.id !== input.credentialId
-      || grant.id !== input.grantId
-      || grant.role !== input.role
-      || grant.space.deletedAt
-    ) {
-      throw new ForbiddenException('Connection credential is unavailable');
-    }
-    return { scopes: scopesForAgentGrant(grant.role, grant.folderScopes) };
+          select: { id: true },
+        }),
+        tx.agentGrant.findFirst({
+          where: {
+            id: input.grantId,
+            agentId: input.agentId,
+            spaceId: input.spaceId,
+            role: grantRole,
+          },
+          select: {
+            id: true,
+            role: true,
+            folderScopes: true,
+            space: { select: {
+              deletedAt: true,
+              members: { where: { userId: input.ownerId }, select: { role: true } },
+            } },
+          },
+        }),
+      ]);
+      if (
+        !credential
+        || !grant
+        || credential.id !== input.credentialId
+        || grant.id !== input.grantId
+        || grant.role !== grantRole
+        || grant.space.deletedAt
+      ) {
+        throw new ForbiddenException('Connection credential is unavailable');
+      }
+      const effective = capAgentGrant(grant, grant.space.members[0]?.role);
+      if (!effective || AGENT_ACCESS_ROLES.indexOf(effective.role) < AGENT_ACCESS_ROLES.indexOf(input.role)) {
+        throw new ForbiddenException('Connection permission is no longer valid');
+      }
+      return { scopes: scopesForAgentGrant(input.role, effective.folderScopes) };
+    });
   }
 
   async listCredentials(ownerId: string, agentId: string) {
@@ -534,7 +583,11 @@ export class AgentService {
           where: { space: { deletedAt: null } },
           select: {
             role: true, folderScopes: true,
-            space: { select: { id: true, name: true } },
+            space: { select: {
+              id: true,
+              name: true,
+              members: agentId ? { where: { userId: ownerId }, select: { role: true } } : false,
+            } },
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -556,7 +609,10 @@ export class AgentService {
     return agents.map((agent) => ({
       ...agent,
       credentialScope: 'agent' as const,
-      grants: agent.grants.map((grant) => this.grantResponse(grant)),
+      grants: agent.grants.flatMap(({ space: { members, ...space }, ...grant }) => {
+        const effective = agentId ? capAgentGrant(grant, members?.[0]?.role) : grant;
+        return effective ? [this.grantResponse({ ...effective, space })] : [];
+      }),
       credentials: agent.credentials.map((credential) => ({
         id: credential.id,
         name: credential.name,
@@ -567,6 +623,13 @@ export class AgentService {
         active: !credential.expiresAt || credential.expiresAt.getTime() > now,
       })),
     }));
+  }
+
+  private previouslyUsableCredential(): Prisma.AgentCredentialWhereInput {
+    return {
+      revokedAt: { not: null },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: this.prisma.agentCredential.fields.revokedAt } }],
+    };
   }
 
   private async audit(
@@ -648,9 +711,7 @@ export class AgentService {
     // owner -> Agent -> Grant -> Space -> membership. A live structural writer
     // may insert AgentCredential -> Space advisory between Grant and Space, but
     // the shared owner/Agent prefix serializes these mutation paths first.
-    await tx.$queryRaw(Prisma.sql`
-      SELECT "id" FROM "User" WHERE "id" = ${actorUserId} FOR UPDATE
-    `);
+    await lockConnectionOwner(tx, actorUserId);
     await tx.$queryRaw(Prisma.sql`
       SELECT "id" FROM "Agent"
       WHERE "id" = ${agentId} AND "ownerId" = ${actorUserId}
@@ -684,17 +745,6 @@ function deterministicAgentId(ownerId: string, idempotencyKey: string): string {
     .slice(0, 32)}`;
 }
 
-function canDelegateAgentRole(spaceRole: SpaceRole, agentRole: AgentAccessRole): boolean {
-  const maximum: Record<SpaceRole, number> = {
-    viewer: 0,
-    editor: 1,
-    admin: 2,
-    owner: 2,
-  };
-  const requested: Record<AgentAccessRole, number> = {
-    reader: 0,
-    editor: 1,
-    publisher: 2,
-  };
-  return requested[agentRole] <= maximum[spaceRole];
+function canDelegateAgentRole(spaceRole: string, agentRole: AgentAccessRole): boolean {
+  return capAgentRole(agentRole, spaceRole) === agentRole;
 }

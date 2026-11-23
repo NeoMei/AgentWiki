@@ -17,6 +17,7 @@ const CAPABILITIES = [
 
 const context = {
   sessionId: 'device-session-12345678',
+  tokenHash: 'b'.repeat(64),
   userId: 'user-1',
   packageVersion: '0.9.1',
   purpose: 'full-onboarding',
@@ -35,6 +36,7 @@ const installation = {
   code: 'AW-INSTALL-CODE',
   expiresAt: '2030-01-01T00:10:00.000Z',
   instructions: 'install',
+  personalKeyRotation: 0,
 };
 
 function p2002() {
@@ -70,6 +72,9 @@ describe('OnboardBootstrapService', () => {
       updatedAt: new Date(),
     };
     tx = {
+      $queryRaw: jest.fn(),
+      onboardingDeviceSession: { findFirst: jest.fn().mockResolvedValue({ id: context.sessionId }) },
+      apiKeyCredential: { count: jest.fn().mockResolvedValue(0) },
       space: {
         create: jest.fn().mockResolvedValue({
           id: 'space-1', name: '研发知识库', approvalPolicy: 'no-review',
@@ -212,7 +217,7 @@ describe('OnboardBootstrapService', () => {
     expect(tx.agentGrant.upsert).not.toHaveBeenCalled();
     expect(installations.issueForBootstrap).toHaveBeenCalledWith({
       ownerId: 'user-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
-      pluginVersion: '0.9.1', serverUrl: 'https://agentwiki.example/api',
+      pluginVersion: '0.9.1', serverUrl: 'https://agentwiki.example/api', onboarding: context,
     });
     expect(result).toEqual({
       space: { id: 'space-1', name: '研发知识库' },
@@ -324,6 +329,8 @@ describe('OnboardBootstrapService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith({
       where: {
         id: context.sessionId,
+        status: 'authorized',
+        onboardingTokenHash: context.tokenHash,
         tokenConsumedAt: null,
         bootstrap: {
           is: {
@@ -441,7 +448,8 @@ describe('OnboardBootstrapService', () => {
     );
 
     expect(replay).toEqual(expected);
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.space.create).not.toHaveBeenCalled();
+    expect(tx.agent.create).not.toHaveBeenCalled();
     expect(installations.issueForBootstrap).not.toHaveBeenCalled();
   });
 
@@ -507,7 +515,8 @@ describe('OnboardBootstrapService', () => {
     await expect(service.bootstrap(
       context, key, plan, hashServerPlan(plan),
     )).rejects.toMatchObject({ businessCode: 'ONBOARDING_REPLAY_MISMATCH' });
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.space.create).not.toHaveBeenCalled();
+    expect(tx.agent.create).not.toHaveBeenCalled();
   });
 
   it('lets a concurrent loser wait for and read the winner response', async () => {
@@ -543,12 +552,12 @@ describe('OnboardBootstrapService', () => {
     expect(installations.issueForBootstrap).toHaveBeenCalledTimes(1);
   });
 
-  it('marks a transaction failure retryable and does not issue or consume anything', async () => {
-    prisma.$transaction.mockRejectedValue(new Error('grant write failed'));
+  it('marks a resource transaction failure retryable and does not issue or consume anything', async () => {
+    tx.space.create.mockRejectedValueOnce(new Error('Space write failed'));
 
     await expect(service.bootstrap(
       context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
-    )).rejects.toThrow('grant write failed');
+    )).rejects.toThrow('Space write failed');
 
     expect(prisma.onboardingBootstrap.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ id: 'bootstrap-1', status: 'running' }),
@@ -579,7 +588,8 @@ describe('OnboardBootstrapService', () => {
         context, 'bootstrap-key-01', createPlan, hashServerPlan(createPlan),
       )).resolves.toMatchObject({ installation: { code: 'AW-INSTALL-CODE' } });
 
-      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(tx.space.create).not.toHaveBeenCalled();
+      expect(tx.agent.create).not.toHaveBeenCalled();
       expect(installations.issueForBootstrap).toHaveBeenCalledTimes(1);
     },
   );
@@ -726,6 +736,8 @@ describe('OnboardBootstrapService', () => {
     expect(prisma.onboardingDeviceSession.updateMany).toHaveBeenCalledWith({
       where: {
         id: context.sessionId,
+        status: 'authorized',
+        onboardingTokenHash: context.tokenHash,
         tokenConsumedAt: null,
         bootstrap: { is: { executionId: claimData.executionId, generation: 1, status: 'completed' } },
       },
@@ -1048,6 +1060,9 @@ describe('OnboardBootstrapService multi-Agent account isolation', () => {
       agentGrant: { findUnique: jest.fn() },
     };
     const tx: any = {
+      $queryRaw: jest.fn(),
+      onboardingDeviceSession: { findFirst: jest.fn().mockResolvedValue({ id: context.sessionId }) },
+      apiKeyCredential: { count: jest.fn().mockResolvedValue(0) },
       space: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'space-existing', name: '共享空间', approvalPolicy: 'always-review', deletedAt: null,
@@ -1102,6 +1117,7 @@ describe('OnboardBootstrapService multi-Agent account isolation', () => {
           code: `AW-CODE-${installationCount}`,
           expiresAt: '2030-01-01T00:10:00.000Z',
           instructions: 'install',
+          personalKeyRotation: 0,
         };
       }),
       revoke: jest.fn(),

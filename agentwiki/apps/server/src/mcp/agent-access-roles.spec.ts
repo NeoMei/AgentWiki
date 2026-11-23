@@ -71,6 +71,8 @@ describe('MCP Agent access roles', () => {
     prisma.agentCredential.findFirst.mockImplementation(async () => ({
       authorizationId: credentialAuthorizationId, revokedAt: null, expiresAt: null,
     }));
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'owner' });
+    prisma.spaceMember.findMany.mockResolvedValue([{ spaceId: 'space-1', role: 'owner' }]);
     prisma.agentGrant.findUnique.mockImplementation(async () => grant);
     prisma.agentGrant.findMany.mockImplementation(async () => [{
       role: grant.role,

@@ -180,7 +180,7 @@ describe('RunEventStore', () => {
           id: 'grant-a', agentId: 'agent-a', spaceId: 'space-a', role: 'editor',
           agent: {
             id: 'agent-a', status: 'active', revokedAt: null,
-            owner: { deletedAt: null, lockedAt: null },
+            owner: { deletedAt: null, lockedAt: null, spaces: [{ role: 'editor' }] },
           },
           space: { deletedAt: null },
         }]),

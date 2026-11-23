@@ -7,13 +7,19 @@ import { Link, useParams } from 'react-router-dom';
 import { KeyRound, Pause, Play, Shield, Trash2 } from 'lucide-react';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
 import api from '../../api/client';
-import { credentialIsActive, hasActiveAgentCredential } from '../collaboration/agentPreparationApi';
+import { credentialIsActive, hasActiveAgentCredential, type OwnedAgentCredential, type OwnedAgentDetail } from '../collaboration/agentPreparationApi';
 import { LocalSyncInstallCard } from './LocalSyncInstallCard';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { agentOwnerText } from './agentOwner';
+import { agentOwnerText, type AgentOwnerSummary } from './agentOwner';
+import { AgentStatusBadge, agentNeedsReconnect, type AgentConnectionStatus } from './AgentStatusBadge';
 
 type Tab = 'overview' | 'access' | 'activity' | 'settings';
+
+interface AgentDetailRecord extends OwnedAgentDetail, AgentConnectionStatus {
+  owner?: AgentOwnerSummary | null;
+  credentials: Array<OwnedAgentCredential & { name: string; prefix: string; lastUsedAt?: string | null }>;
+}
 
 export const AgentDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -21,13 +27,14 @@ export const AgentDetail: React.FC = () => {
   const { t, language } = useLanguage();
   const [showArchive, setShowArchive] = useState(false);
   const op = (key: string) => bugOperationsText(language, key);
-  const [agent, setAgent] = useState<any>(null);
+  const [agent, setAgent] = useState<AgentDetailRecord | null>(null);
   const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<any[]>([]);
   const [activity, setActivity] = useState<any[]>([]);
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const accessTabRef = useRef<HTMLButtonElement>(null);
   const loadSequenceRef = useRef(0);
 
   const loadAllSpaces = useCallback(async () => {
@@ -53,7 +60,7 @@ export const AgentDetail: React.FC = () => {
     const request = ++loadSequenceRef.current;
     try {
       const [agentResponse, spacesResponse, activityResponse] = await Promise.all([
-        api.get('/agents/' + id),
+        api.get<AgentDetailRecord>('/agents/' + id),
         loadAllSpaces(),
         api.get('/agents/' + id + '/activity'),
       ]);
@@ -80,6 +87,8 @@ export const AgentDetail: React.FC = () => {
   const currentAgent = loadedAgentId === id ? agent : null;
   if (!currentAgent) return <div className="py-12 text-center text-gray-500">{error || t('common.loading')}</div>;
 
+  const needsReconnect = agentNeedsReconnect(currentAgent);
+  const agentAvailable = currentAgent.status === 'active' && !currentAgent.revokedAt;
   const updateStatus = async () => {
     setUpdatingStatus(true);
     setError(null);
@@ -105,6 +114,10 @@ export const AgentDetail: React.FC = () => {
       : membership.role === 'editor' ? 'editor' : 'reader';
     return [{ ...space, maxAgentRole }];
   });
+  if (needsReconnect) {
+    const authorizedSpaceIds = new Set(currentAgent.grants.map((grant) => grant.spaceId));
+    manageableSpaces.sort((a, b) => Number(authorizedSpaceIds.has(b.id)) - Number(authorizedSpaceIds.has(a.id)));
+  }
   const safeResultSummary = (item: any) => {
     const raw = item.metadata?.resultSummary;
     if (!raw || typeof raw !== 'object') return {};
@@ -157,9 +170,9 @@ export const AgentDetail: React.FC = () => {
       <Link to="/agents" className="text-sm text-gray-500 hover:text-blue-600">← {t('nav.agents')}</Link>
       <div className="flex items-start justify-between gap-4 mt-4 mb-6">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-semibold">{currentAgent.name}</h1>
-            <span className={'text-xs px-2 py-0.5 rounded-full ' + (currentAgent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>{currentAgent.status === 'archived' ? op('operations.archived') : runtimeLabel(currentAgent.status, t)}</span>
+            <AgentStatusBadge agent={currentAgent} />
           </div>
           <p className="text-sm text-gray-500 mt-1">{currentAgent.description || t('common.noDescription')}</p>
           <p className="text-sm text-gray-500 mt-1 [overflow-wrap:anywhere]">{agentOwnerText(currentAgent.owner, language)}</p>
@@ -171,16 +184,34 @@ export const AgentDetail: React.FC = () => {
 
       {error ? <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p> : null}
 
+      {needsReconnect && agentAvailable ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p>{t('agent.reconnectHelp')}</p>
+          {tab !== 'access' ? (
+            <button
+              type="button"
+              onClick={() => {
+                setTab('access');
+                accessTabRef.current?.focus();
+              }}
+              className="rounded-lg border border-amber-300 px-3 py-1.5 font-medium hover:bg-amber-100"
+            >
+              {t('agent.reconnect')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="border-b flex gap-6 mb-6">
         {(['overview', 'access', 'activity', 'settings'] as Tab[]).map((item) => (
-          <button key={item} onClick={() => setTab(item)} className={'pb-3 text-sm border-b-2 ' + (tab === item ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500')}>{t(`agent.${item}`)}</button>
+          <button key={item} ref={item === 'access' ? accessTabRef : undefined} type="button" aria-pressed={tab === item} onClick={() => setTab(item)} className={'pb-3 text-sm border-b-2 ' + (tab === item ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500')}>{t(`agent.${item}`)}</button>
         ))}
       </div>
 
       {tab === 'overview' ? (
         <div className="grid sm:grid-cols-3 gap-4">
           <Summary label={t('nav.spaces')} value={currentAgent.grants.length} />
-          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter((item: any) => credentialIsActive(item)).length} />
+          <Summary label={t('agent.activeCredentials')} value={currentAgent.credentials.filter((item) => credentialIsActive(item)).length} />
           <Summary label={t('agent.approvalMode')} value={t('agent.approvalFollowsSpace')} />
         </div>
       ) : null}
@@ -188,11 +219,12 @@ export const AgentDetail: React.FC = () => {
       {tab === 'access' ? (
         <div className="space-y-6">
           <LocalSyncInstallCard
+            key={currentAgent.id}
             agentId={currentAgent.id}
             spaces={manageableSpaces}
             grants={currentAgent.grants}
-            credentialAvailable={hasActiveAgentCredential(currentAgent)}
-            agentAvailable={currentAgent.status === 'active' && !currentAgent.revokedAt}
+            credentialAvailable={!needsReconnect && hasActiveAgentCredential(currentAgent)}
+            agentAvailable={agentAvailable}
             title={t('agent.accessAuthorization')}
             onAuthorized={load}
           />
@@ -201,7 +233,7 @@ export const AgentDetail: React.FC = () => {
             <h2 className="font-semibold mb-4 flex items-center gap-2"><Shield size={18} /> {t('agent.authorizedSpaces')}</h2>
             <p className="mb-3 text-sm text-gray-600">{t('agent.credentialSpaceBoundary')}</p>
             <div className="divide-y">
-              {currentAgent.grants.map((item: any) => (
+              {currentAgent.grants.map((item) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3 text-sm">
                   <span className="min-w-0 flex-1 truncate">{item.space.name}</span>
                   <span className="rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-600">{roleName(item.role)}</span>
@@ -215,7 +247,7 @@ export const AgentDetail: React.FC = () => {
           <section className="border rounded-[14px] bg-white p-5">
             <h2 className="font-semibold mb-4 flex items-center gap-2"><KeyRound size={18} /> {t('agent.connectionRecords')}</h2>
             <div className="divide-y">
-              {currentAgent.credentials.map((item: any) => (
+              {currentAgent.credentials.map((item) => (
                 <div key={item.id} className="flex items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{item.name} <span className="ml-2 text-xs font-normal text-gray-500">{t('agent.identityConnection')}</span></p>

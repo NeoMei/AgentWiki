@@ -114,7 +114,7 @@ function harness(options: { credential?: boolean } = {}) {
           id: agentId,
           status: 'active',
           revokedAt: null,
-          owner: { deletedAt: null, lockedAt: null },
+          owner: { deletedAt: null, lockedAt: null, spaces: [{ role: 'editor' }] },
           credentials: options.credential === false ? [] : [{ id: `credential-${agentId}` }],
         },
         space: { deletedAt: null },

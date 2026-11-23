@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import type { AgentAccessRole } from '@neomei/agentwiki-sync-protocol';
+import { capAgentGrant } from './agent-owner-role';
 
 type QueryClient = {
   $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T>;
@@ -28,7 +29,7 @@ type LockedNonSpaceAuthorization = Omit<LockedAgentAuthorization, 'space'>;
 /**
  * Global structural-write lock order:
  *
- *   User -> Agent -> AgentGrant -> AgentCredential -> Space advisory -> Space
+ *   User -> Agent -> AgentGrant -> AgentCredential -> Space advisory -> Space -> SpaceMember
  *
  * A path that does not need the advisory lock omits that step but preserves the
  * remaining order. ContentTree/Page/Folder writers already take the advisory
@@ -42,8 +43,10 @@ type LockedNonSpaceAuthorization = Omit<LockedAgentAuthorization, 'space'>;
  * The preliminary Space read below is deliberately non-locking: invalid
  * callers are rejected before they can occupy the Space advisory lock. After
  * the advisory lock is held, the
- * authoritative Space row is locked and re-read so deletion/policy changes
- * that raced the wait cannot authorize a write.
+ * authoritative Space row and owner membership are locked and re-read.
+ * Membership changes can race the preliminary check while waiting for the
+ * Space advisory lock. Paths without the advisory lock still protect the
+ * authorization through the membership row lock.
  */
 export async function lockLiveAgentAuthorization(
   db: QueryClient,
@@ -53,8 +56,7 @@ export async function lockLiveAgentAuthorization(
   const nonSpace = await lockAndReadNonSpaceAuthorization(db, context, spaceId);
   if (!nonSpace) return null;
   const space = await lockAndReadSpace(db, spaceId);
-  if (!space) return null;
-  return { ...nonSpace, space };
+  return readEffectiveAuthorization(db, context, spaceId, nonSpace, space, true);
 }
 
 export async function lockLiveAgentAuthorizationAcrossSpaceBoundary<T>(
@@ -68,16 +70,41 @@ export async function lockLiveAgentAuthorizationAcrossSpaceBoundary<T>(
   if (!nonSpace) return null;
 
   const preliminarySpace = await readSpace(db, spaceId);
-  if (!preliminarySpace) return null;
-  const preliminary = { ...nonSpace, space: preliminarySpace };
-  if (!isAuthorized(preliminary)) return null;
+  const preliminary = await readEffectiveAuthorization(db, context, spaceId, nonSpace, preliminarySpace);
+  if (!preliminary || !isAuthorized(preliminary)) return null;
 
   const spaceLock = await acquireSpaceAdvisory();
   const authoritativeSpace = await lockAndReadSpace(db, spaceId);
-  if (!authoritativeSpace) return null;
-  const authorization = { ...nonSpace, space: authoritativeSpace };
-  if (!isAuthorized(authorization)) return null;
+  const authorization = await readEffectiveAuthorization(db, context, spaceId, nonSpace, authoritativeSpace, true);
+  if (!authorization || !isAuthorized(authorization)) return null;
   return { authorization, spaceLock };
+}
+
+async function readEffectiveAuthorization(
+  db: QueryClient,
+  context: LiveAgentAuthorizationContext,
+  spaceId: string,
+  nonSpace: LockedNonSpaceAuthorization,
+  space: LockedAgentAuthorization['space'] | null,
+  lockMembership = false,
+): Promise<LockedAgentAuthorization | null> {
+  if (!space) return null;
+  if (lockMembership) {
+    const members = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT "id"
+      FROM "SpaceMember"
+      WHERE "userId" = ${context.ownerId} AND "spaceId" = ${spaceId}
+      FOR NO KEY UPDATE
+    `);
+    if (members.length !== 1) return null;
+  }
+  const client = db as Pick<Prisma.TransactionClient, '$queryRaw' | 'spaceMember'>;
+  const membership = await client.spaceMember.findUnique({
+    where: { userId_spaceId: { userId: context.ownerId, spaceId } },
+    select: { role: true },
+  });
+  const grant = capAgentGrant(nonSpace.grant, membership?.role);
+  return grant ? { ...nonSpace, space, grant } : null;
 }
 
 async function lockAndReadNonSpaceAuthorization(

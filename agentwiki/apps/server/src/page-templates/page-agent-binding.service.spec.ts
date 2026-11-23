@@ -51,6 +51,8 @@ function makeHarness() {
           owner: {
             deletedAt: agentId === 'deleted-owner-agent' ? firstVersion : null,
             lockedAt: agentId === 'locked-owner-agent' ? firstVersion : null,
+            spaces: agentId === 'nonmember-owner-agent' ? [] :
+              [{ role: agentId === 'viewer-owner-agent' ? 'viewer' : 'editor' }],
           },
         },
         space: { deletedAt: null },
@@ -173,6 +175,8 @@ describe('PageAgentBindingService', () => {
     ['deleted-owner-agent', 'COLLABORATION_AGENT_INACTIVE'],
     ['locked-owner-agent', 'COLLABORATION_AGENT_INACTIVE'],
     ['reader-agent', 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
+    ['viewer-owner-agent', 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
+    ['nonmember-owner-agent', 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
   ])('rejects non-compliant Agent %s', async (agentId, code) => {
     const h = makeHarness();
     await expect(h.service.setBindings(

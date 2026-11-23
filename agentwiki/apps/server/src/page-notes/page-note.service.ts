@@ -56,9 +56,9 @@ export class PageNoteService {
       if (!user) throw new BusinessException('SPACE_ACCESS_DENIED');
       const liveUser = Prisma.sql`EXISTS (SELECT 1 FROM "User" u WHERE u."id" = ${principal.userId}
         AND u."type" = 'human' AND u."deletedAt" IS NULL AND u."lockedAt" IS NULL)`;
-      const membership = Prisma.sql`EXISTS (SELECT 1 FROM "SpaceMember" m
-        WHERE m."spaceId" = s."id" AND m."userId" = ${principal.userId}
-        AND m."role" IN ('owner', 'admin', 'editor', 'viewer'))`;
+      const spaceMember = Prisma.sql`SELECT 1 FROM "SpaceMember" m
+        WHERE m."spaceId" = s."id" AND m."userId" = ${principal.userId}`;
+      const membership = Prisma.sql`EXISTS (${spaceMember} AND m."role" IN ('owner', 'admin', 'editor', 'viewer'))`;
       let access: Prisma.Sql;
       let canWrite: Prisma.Sql;
       if (principal.agentId) {
@@ -72,10 +72,12 @@ export class PageNoteService {
           WHERE a."id" = ${principal.agentId} AND a."ownerId" = ${principal.userId} AND a."status" = 'active'
           AND a."revokedAt" IS NULL AND c."id" = ${principal.credentialId} AND c."revokedAt" IS NULL
           AND (c."expiresAt" IS NULL OR c."expiresAt" > (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')))`;
-        access = Prisma.sql`${liveAgent} AND EXISTS (SELECT 1 FROM "AgentGrant" g
+        // Apply the owner role cap to each grant inside the discovery snapshot.
+        access = Prisma.sql`${liveAgent} AND ${membership} AND EXISTS (SELECT 1 FROM "AgentGrant" g
           WHERE g."spaceId" = s."id" AND g."agentId" = ${principal.agentId}
           AND g."role"::text IN ('reader', 'editor', 'publisher'))`;
-        canWrite = Prisma.sql`EXISTS (SELECT 1 FROM "AgentGrant" g WHERE g."spaceId" = s."id"
+        canWrite = Prisma.sql`EXISTS (${spaceMember} AND m."role" IN ('owner', 'admin', 'editor'))
+          AND EXISTS (SELECT 1 FROM "AgentGrant" g WHERE g."spaceId" = s."id"
           AND g."agentId" = ${principal.agentId} AND g."role"::text IN ('editor', 'publisher'))`;
       } else {
         await this.authorization.assertLiveHumanCredential(db, principal, ['pages:read']);

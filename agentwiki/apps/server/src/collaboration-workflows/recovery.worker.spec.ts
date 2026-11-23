@@ -10,6 +10,17 @@ const expired = {
 };
 
 describe('RecoveryWorker', () => {
+  const liveGrant = (ownerRole: string | null, role = 'publisher') => ({
+    id: 'grant-1',
+    role,
+    agent: {
+      status: 'active',
+      revokedAt: null,
+      owner: { deletedAt: null, lockedAt: null, spaces: ownerRole ? [{ role: ownerRole }] : [] },
+      credentials: [{ revokedAt: null, expiresAt: null }],
+    },
+    space: { deletedAt: null },
+  });
   const tx = {
     collaborationTaskAttempt: { findUnique: jest.fn(), updateMany: jest.fn() },
     collaborationRunTask: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
@@ -36,9 +47,7 @@ describe('RecoveryWorker', () => {
     tx.collaborationRunTask.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRun.updateMany.mockResolvedValue({ count: 1 });
     tx.collaborationRunTask.findMany.mockResolvedValue([]);
-    tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null }, credentials: [{ revokedAt: null, expiresAt: null }] }, space: { deletedAt: null },
-    });
+    tx.agentGrant.findUnique.mockResolvedValue(liveGrant('editor'));
     tx.collaborationRun.findUnique.mockResolvedValue({ eventSequence: 7 });
     prisma.collaborationRun.findUnique.mockResolvedValue({ spaceId: 'space-1', eventSequence: 8 });
     worker = new RecoveryWorker(prisma, config, events, notifications);
@@ -90,9 +99,7 @@ describe('RecoveryWorker', () => {
   });
 
   it('pauses instead of releasing work after Agent authorization changes', async () => {
-    tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'reader', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } }, space: { deletedAt: null },
-    });
+    tx.agentGrant.findUnique.mockResolvedValue(liveGrant('owner', 'reader'));
     await worker.tick();
     expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'paused', pauseReason: 'agent_authorization_changed' }),
@@ -103,8 +110,9 @@ describe('RecoveryWorker', () => {
   });
 
   it('pauses when the assignee no longer has a live Credential for the Grant', async () => {
+    const grant = liveGrant('editor');
     tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null }, credentials: [{ revokedAt: new Date(), expiresAt: null }] }, space: { deletedAt: null },
+      ...grant, agent: { ...grant.agent, credentials: [{ revokedAt: new Date(), expiresAt: null }] },
     });
     await worker.tick();
     expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -159,6 +167,37 @@ describe('RecoveryWorker', () => {
     },
   );
 
+  it.each(['viewer', null])('pauses an expired attempt when assignee owner membership is %s', async (role) => {
+    tx.agentGrant.findUnique.mockResolvedValue(liveGrant(role));
+
+    await worker.tick();
+
+    expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'paused', pauseReason: 'agent_authorization_changed' },
+    }));
+    expect(tx.collaborationRunTask.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'failed', nextAttemptAt: null },
+    }));
+  });
+
+  it('pauses a due retry when the assignee owner membership was removed', async () => {
+    prisma.collaborationTaskAttempt.findMany.mockResolvedValue([]);
+    tx.collaborationRunTask.findMany.mockResolvedValue([{ id: 'task-retry' }]);
+    tx.collaborationRunTask.findUnique.mockResolvedValue({
+      id: 'task-retry', runId: 'run-1', generation: 3, status: 'retry_wait',
+      nextAttemptAt: new Date(Date.now() - 1), assigneeAgentId: 'agent-1',
+      run: { id: 'run-1', spaceId: 'space-1', status: 'running' },
+    });
+    tx.agentGrant.findUnique.mockResolvedValue(liveGrant(null));
+
+    await worker.tick();
+
+    expect(tx.collaborationRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: { status: 'paused', pauseReason: 'agent_authorization_changed' },
+    }));
+    expect(tx.collaborationTaskTodo.updateMany).not.toHaveBeenCalled();
+  });
+
   it('conditions retry release on the current Task generation and due deadline', async () => {
     prisma.collaborationTaskAttempt.findMany.mockResolvedValue([]);
     tx.collaborationRunTask.findMany.mockResolvedValue([{ id: 'task-retry' }]);
@@ -195,7 +234,7 @@ describe('RecoveryWorker', () => {
       run: { id: 'run-1', spaceId: 'space-1', status: 'running' },
     });
     tx.agentGrant.findUnique.mockResolvedValue({
-      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner, credentials: [{ revokedAt: null, expiresAt: null }] },
+      id: 'grant-1', role: 'editor', agent: { status: 'active', revokedAt: null, owner: { ...owner, spaces: [{ role: 'editor' }] }, credentials: [{ revokedAt: null, expiresAt: null }] },
       space: { deletedAt: null },
     });
 

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, randomBytes } from 'crypto';
 import { AuditService } from '../core/security/audit.service';
 import { BusinessException } from '../core/filters/business-error';
+import { lockConnectionOwner } from '../core/user/personal-key-rotation';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
 import type { ObsidianIntegrationService } from '../integrations/obsidian/obsidian-integration.service';
@@ -155,14 +156,25 @@ export class OnboardDeviceService {
       throw new BusinessException('RESOURCE_CONFLICT', 'Device authorization already has a different decision');
     }
 
-    const now = new Date();
-    const data = input.decision === 'approve'
-      ? { status: 'approved', authorizedUserId: userId, approvedAt: now }
-      : { status: 'denied', deniedAt: now };
-    const changed = await this.prisma.onboardingDeviceSession.updateMany({
-      where: { id: stored.id, status: 'pending', userCodeHash: stored.userCodeHash,
-        authorizedUserId: stored.authorizedUserId, expiresAt: stored.expiresAt, AND: { expiresAt: { gt: now } } },
-      data,
+    const changed = await this.prisma.$transaction(async (tx) => {
+      // Approval creates authorization for an owner. Order it against rotation
+      // so an approved row cannot appear late in the reset transaction.
+      await lockConnectionOwner(tx, userId);
+      const currentUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, type: true, lockedAt: true, deletedAt: true },
+      });
+      if (!this.isActiveHuman(currentUser)) {
+        throw new BusinessException('AUTH_DENIED', 'The human account is unavailable');
+      }
+      const now = new Date();
+      return tx.onboardingDeviceSession.updateMany({
+        where: { id: stored.id, status: 'pending', userCodeHash: stored.userCodeHash,
+          authorizedUserId: stored.authorizedUserId, expiresAt: stored.expiresAt, AND: { expiresAt: { gt: now } } },
+        data: input.decision === 'approve'
+          ? { status: 'approved', authorizedUserId: userId, approvedAt: now }
+          : { status: 'denied', deniedAt: now },
+      });
     });
     if (!changed.count) {
       const latest = await this.prisma.onboardingDeviceSession.findUnique({ where: { id: stored.id } });

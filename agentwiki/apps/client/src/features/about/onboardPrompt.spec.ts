@@ -17,6 +17,9 @@ it.each([true, false])('uses the prepared local runtime for every host and onboa
     expect(commands[3]).toContain('--reply-file');
     expect(prompt).toContain(url);
     expect(prompt.indexOf(url)).toBeLessThan(prompt.indexOf(commands[0]));
+    const reconnect = zh ? '该智能体原有的详情页' : 'open its original details';
+    expect(prompt).toContain(reconnect);
+    expect(prompt.indexOf(reconnect)).toBeLessThan(prompt.indexOf(commands[0]));
     expect(prompt).not.toContain('npx');
   }
 });

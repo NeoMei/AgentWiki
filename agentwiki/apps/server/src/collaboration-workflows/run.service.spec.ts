@@ -58,9 +58,9 @@ const draft = {
   inputs: { objective: 'Ship feature' }, startedById: 'user-1', roleBindings: bindings,
 };
 const ready = { ...draft, status: 'ready', version: 2 };
-const grant = (agentId: string, role: 'reader' | 'editor' | 'publisher' = 'editor', status = 'active') => ({
+const grant = (agentId: string, role: 'reader' | 'editor' | 'publisher' = 'editor', status = 'active', ownerRole: string | null = 'editor') => ({
   id: `grant-${agentId}`, agentId, spaceId: 'space-1', role,
-  agent: { id: agentId, status, revokedAt: null, owner: { deletedAt: null, lockedAt: null }, credentials: [{ id: `credential-${agentId}` }] }, space: { deletedAt: null },
+  agent: { id: agentId, status, revokedAt: null, owner: { deletedAt: null, lockedAt: null, spaces: ownerRole ? [{ role: ownerRole }] : [] }, credentials: [{ id: `credential-${agentId}` }] }, space: { deletedAt: null },
 });
 
 function projectSelect(value: any, select: Record<string, any>): any {
@@ -234,7 +234,9 @@ describe('RunService', () => {
 
   it.each([
     ['inactive Agent', [grant('agent-a', 'editor', 'inactive'), grant('agent-b')], 'COLLABORATION_AGENT_INACTIVE'],
-    ['reader Agent', [grant('agent-a', 'reader'), grant('agent-b')], 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
+    ['reader Agent', [grant('agent-a', 'reader', 'active', 'owner'), grant('agent-b')], 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
+    ['Agent whose owner became a viewer', [grant('agent-a', 'publisher', 'active', 'viewer'), grant('agent-b')], 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
+    ['Agent whose owner lost membership', [grant('agent-a', 'publisher', 'active', null), grant('agent-b')], 'COLLABORATION_AGENT_CANNOT_EXECUTE'],
   ] as const)('rejects %s during fresh validation', async (_label, grants, code) => {
     tx.collaborationRun.findFirst.mockResolvedValue(draft);
     tx.agentGrant.findMany.mockResolvedValue(grants);

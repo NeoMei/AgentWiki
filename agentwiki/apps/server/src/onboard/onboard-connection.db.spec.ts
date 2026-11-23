@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { OnboardModule } from './onboard.module';
 import { OnboardDeviceService } from './onboard-device.service';
 import { OnboardBootstrapService } from './onboard-bootstrap.service';
@@ -90,7 +90,8 @@ run('connection authorization dedicated PostgreSQL/Redis gate', () => {
     await devices.decide({userCode:started.userCode,decision:'approve'},userId,ip());
     const authorized = await devices.poll({deviceCode:started.deviceCode},ip());
     expect((await devices.poll({deviceCode:started.deviceCode},ip())).onboardingToken).toBe(authorized.onboardingToken);
-    const principal = {sessionId:started.id,userId,packageVersion:'0.9.1',purpose:'agent-connect',requestedCapabilities:['bootstrap:space','bootstrap:agent','bootstrap:installation']};
+    const tokenHash = createHash('sha256').update(authorized.onboardingToken as string).digest('hex');
+    const principal = {sessionId:started.id,tokenHash,userId,packageVersion:'0.9.1',purpose:'agent-connect',requestedCapabilities:['bootstrap:space','bootstrap:agent','bootstrap:installation']};
     const plan: ServerPlan = {space:{mode:'create',name:prefix},agentName:prefix,role:'reader',packageVersion:'0.9.1'};
     const bootstrap = module.get(OnboardBootstrapService);
     const result = await bootstrap.bootstrap(principal,prefix,plan,hashServerPlan(plan));

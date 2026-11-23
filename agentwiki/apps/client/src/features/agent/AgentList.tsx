@@ -1,19 +1,18 @@
 import { AgentArchiveDialog } from './AgentArchiveDialog';
 import { bugOperationsText } from '../../i18n/bug-operations-messages';
-import { runtimeLabel } from '../../i18n/runtime-label';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bot, KeyRound, Pause, Play, Plus, X } from 'lucide-react';
+import { Bot, KeyRound, Pause, Play, PlugZap, X } from 'lucide-react';
 import api from '../../api/client';
 import { useLanguage } from '../../context/LanguageContext';
 import { ModalDialog } from '../../components/ModalDialog';
 import { agentOwnerText, type AgentOwnerSummary } from './agentOwner';
+import { AgentStatusBadge, type AgentConnectionStatus } from './AgentStatusBadge';
 
-interface Agent {
+interface Agent extends AgentConnectionStatus {
   id: string;
   name: string;
   description?: string;
-  status: string;
   approvalMode: string;
   owner?: AgentOwnerSummary | null;
   grants: Array<{ id: string; space: { id: string; name: string }; role: string }>;
@@ -34,7 +33,7 @@ export const AgentList: React.FC = () => {
 
   const load = useCallback(async () => {
     try {
-      const response = await api.get('/agents?includeArchived=true');
+      const response = await api.get<Agent[]>('/agents?includeArchived=true');
       setAgents(response.data);
     } catch (err: any) {
       setError(err.response?.data?.message || t('agent.loadFailed'));
@@ -81,14 +80,19 @@ export const AgentList: React.FC = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">{t('nav.agents')}</h1>
           <p className="text-sm text-gray-500 mt-1">{t('agent.description')}</p>
         </div>
-        <button onClick={() => setShowCreate(true)} className="h-8 px-3 rounded-lg bg-blue-600 text-white text-sm font-medium flex items-center gap-2">
-          <Plus size={16} /> {t('agent.new')}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link to="/guide/agent-onboard" className="flex h-8 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-medium text-white hover:bg-blue-700">
+            <PlugZap size={16} /> {t('agent.connect')}
+          </Link>
+          <button type="button" onClick={() => setShowCreate(true)} className="h-8 rounded-lg border px-3 text-sm hover:bg-gray-50">
+            {t('agent.manualCreate')}
+          </button>
+        </div>
       </div>
 
       {error ? <div className="mb-4 p-3 border border-red-200 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div> : null}
@@ -108,9 +112,7 @@ export const AgentList: React.FC = () => {
               <Link to={'/agents/' + agent.id} className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium truncate">{agent.name}{duplicateNames.has(agent.name) ? <span className="ml-2 font-mono text-xs font-normal text-gray-400">#{agent.id.slice(0, 8)}</span> : null}</span>
-                  <span className={'text-xs px-2 py-0.5 rounded-full ' + (agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700')}>
-                    {agent.status === 'archived' ? op('operations.archived') : runtimeLabel(agent.status, t)}
-                  </span>
+                  <AgentStatusBadge agent={agent} />
                 </div>
                 <p className="text-sm text-gray-500 truncate mt-1">{agent.description || t('common.noDescription')}</p>
                 <p className="text-sm text-gray-500 mt-1 [overflow-wrap:anywhere]">{agentOwnerText(agent.owner, language)}</p>

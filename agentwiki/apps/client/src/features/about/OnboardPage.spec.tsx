@@ -94,6 +94,14 @@ describe('Agent connection steps guide',()=>{
     expect(screen.getByText('实际读取验证')).toBeInTheDocument();
     expect(screen.queryByText(/确认 Agent、Space、权限和本地扫描计划/)).not.toBeInTheDocument();
   });
+  it.each([
+    ['zh-CN', /确认接入计划后.*创建一个智能体/, '前往智能体列表'],
+    ['en', /After you confirm the connection plan.*creates one Agent/, 'Go to Agents'],
+  ] as const)('explains first-time creation and routes reconnection to existing Agents in %s', (language, createsAgent, agentsLink) => {
+    renderPage(language);
+    expect(screen.getByText(createsAgent)).toBeVisible();
+    expect(screen.getByRole('link', { name: agentsLink })).toHaveAttribute('href', '/agents');
+  });
   it('shows a copy failure with the full text available for manual selection',async()=>{
     vi.mocked(navigator.clipboard.writeText).mockRejectedValue(new Error('denied'));
     renderPage('zh-CN');fireEvent.click(screen.getByRole('button',{name:'复制提示词'}));

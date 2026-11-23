@@ -27,6 +27,8 @@ export function buildOnboardPrompt(zh: boolean, client: OnboardClient, serverUrl
   const reply = `${runner} onboard continue --session <sessionId> --reply-file <absolute-json-file> --protocol json`;
   return zh ? `请帮我完成 AgentWiki 接入，并在当前客户端实际读取一篇已知页面来验证。
 
+如果我要求重连已有智能体，请先打开 AgentWiki 中该智能体原有的详情页，在「访问权限」生成新的安装指令，再用该指令完成重连。以下步骤用于首次接入。
+
 1. ${hostPreparation} 当前客户端需支持本地 stdio MCP；本机需要 Node.js 24 或 26。每条接入命令结束后读取一个 JSON 对象，立即保存 sessionId；后续始终使用同一个 sessionId。完成下方适用的启动准备后再执行启动命令；环境预检失败时，按返回的修复指引处理后再继续。首次安装依赖可能需要几分钟；工具等待超时先查看原命令结果，不要并行重复启动。
 ${preparation}
 \`\`\`sh
@@ -61,6 +63,8 @@ ${reply}
 
 知识导入可以稍后单独开始，使用 knowledge_* 工具预览并取得我的明确确认。不要为验证连接创建伪文档或上传本地资料。`
     : `Connect this client to AgentWiki, then verify it by actually reading a known page in this host.
+
+To reconnect an existing Agent, open its original details in AgentWiki and generate fresh installation instructions under Access. Follow those instructions to reconnect. Use the steps below for a first connection.
 
 1. ${hostPreparation} This client needs local stdio MCP support and Node.js 24 or 26. Each onboarding command ends with one JSON object. Save sessionId immediately and use that same sessionId throughout. Complete the applicable preparation below before running the start command; if environment preflight fails, follow its repair instructions before continuing. Initial dependency installation may take minutes; inspect the original command after a tool timeout instead of starting another process in parallel.
 ${preparation}

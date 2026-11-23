@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Check, Copy, FileCheck2, ShieldCheck } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { BrandMark } from '../../components/BrandMark';
 import { LOCAL_SYNC_VERSION } from '../../config/localSync';
 import { useLanguage } from '../../context/LanguageContext';
@@ -40,7 +41,14 @@ export const OnboardPage: React.FC = () => {
       <header>
         <p className="flex items-center gap-2 text-sm text-gray-500"><BrandMark size={20} /> {t('brand.fullName')} · {LOCAL_SYNC_VERSION}</p>
         <h1 className="mt-4 text-2xl font-semibold">{zh ? '连接你的 Agent' : 'Connect your Agent'}</h1>
-        <p className="mt-3 max-w-2xl text-base leading-6 text-gray-600">{zh ? '把通用提示词交给支持本地 MCP 的 Agent，即可开始接入。Agent 会引导你授权、配置工具并验证实际读取。' : 'Give the universal prompt to any Agent with local MCP support. Your Agent guides authorization, tool setup, and a real page-read check.'}</p>
+        <p className="mt-3 max-w-2xl text-base leading-6 text-gray-600">
+          {t('guide.onboardCard')}
+        </p>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-600">
+          {zh ? '重新接入请打开原智能体的详情页，在「访问权限」生成安装指令。' : 'To reconnect, open the original Agent’s details and generate installation instructions under Access.'}
+          {' '}
+          <Link to="/agents" className="font-medium text-blue-700 hover:underline">{zh ? '前往智能体列表' : 'Go to Agents'}</Link>
+        </p>
       </header>
       <section className="mt-6 rounded-xl border border-gray-200 bg-white p-4 sm:p-6" aria-labelledby="agent-connect-title">
         <h2 id="agent-connect-title" className="text-lg font-semibold">{zh ? '复制整段提示词到你的 Agent' : 'Copy the full prompt into your Agent'}</h2>

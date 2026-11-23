@@ -59,7 +59,7 @@ describe('LocalSyncInstallationService', () => {
       key === installationKey ? JSON.stringify(payload) : null
     ));
     agents.getOwned.mockResolvedValue({ id: 'agent-1', status: 'active' });
-    agents.assertCanIssueConnection.mockResolvedValue(undefined);
+    agents.assertCanIssueConnection.mockResolvedValue(0);
     agents.exchangeConnectionIntent.mockResolvedValue({
       id: 'credential-1', grantId: 'grant-1', agentId: 'agent-1', role: 'editor',
       scopes: scopesForAgentAccessRole('editor'), revokedAt: null,
@@ -104,6 +104,7 @@ describe('LocalSyncInstallationService', () => {
       role: 'editor',
       pluginVersion: '0.9.1',
       serverUrl: 'https://wiki.test/api',
+      personalKeyRotation: 0,
     }));
     expect(stored).not.toHaveProperty('code');
     expect(stored).not.toHaveProperty('scopes');
@@ -116,7 +117,7 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('does not scan or sync');
     expect(result.instructions).not.toContain('agk_');
     expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'space-1', false, 'editor',
+      'owner-1', 'agent-1', 'space-1', false, 'editor', undefined,
     );
   });
 
@@ -216,7 +217,7 @@ describe('LocalSyncInstallationService', () => {
     );
 
     expect(agents.assertCanIssueConnection).toHaveBeenCalledWith(
-      'owner-1', 'agent-1', 'space-1', true, 'editor',
+      'owner-1', 'agent-1', 'space-1', true, 'editor', undefined,
     );
   });
 
@@ -300,6 +301,7 @@ describe('LocalSyncInstallationService', () => {
     expect(agents.exchangeConnectionIntent).toHaveBeenCalledWith({
       ownerId: 'owner-1', agentId: 'agent-1', spaceId: 'space-1', role: 'editor',
       installationId: payload.installationId, rawKey: expect.stringMatching(/^agk_/),
+      personalKeyRotation: 0, expiresAt: new Date(payload.expiresAt),
     });
   });
 

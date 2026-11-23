@@ -49,6 +49,7 @@ describe('KnowledgeSyncController HTTP authorization', () => {
   const prisma = {
     space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
     agentGrant: { findUnique: jest.fn(({ where }: any) => grants[where.agentId_spaceId.agentId]) },
+    spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'editor' }) },
   } as any;
   const auth = {
     validateJwtUser: jest.fn(),

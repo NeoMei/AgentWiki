@@ -2,12 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { BusinessException } from '../filters/business-error';
 import { PrismaService } from '../../database/prisma.service';
 import {
-  AgentAccessRoleSchema,
   agentGrantAllowsScope,
   agentRoleSpaceCapability,
   type AgentAccessRole,
 } from '@neomei/agentwiki-sync-protocol';
 import { Prisma } from '@prisma/client';
+import { capAgentGrant } from './agent-owner-role';
 import {
   lockLiveAgentAuthorization,
   lockLiveAgentAuthorizationAcrossSpaceBoundary,
@@ -149,19 +149,25 @@ export class AuthorizationService {
       );
     }
     if (principal.agentId) {
-      const grant = await this.prisma.agentGrant.findUnique({
-        where: { agentId_spaceId: { agentId: principal.agentId, spaceId }, agent: this.liveAgentIdentityFilter(principal) },
-        include: {
-          agent: { select: { status: true, revokedAt: true } },
-          space: { select: { deletedAt: true } },
-        },
-      });
+      const [storedGrant, membership] = await Promise.all([
+        this.prisma.agentGrant.findUnique({
+          where: { agentId_spaceId: { agentId: principal.agentId, spaceId }, agent: this.liveAgentIdentityFilter(principal) },
+          include: {
+            agent: { select: { status: true, revokedAt: true } },
+            space: { select: { deletedAt: true } },
+          },
+        }),
+        this.prisma.spaceMember.findUnique({
+          where: { userId_spaceId: { userId: principal.userId, spaceId } },
+          select: { role: true },
+        }),
+      ]);
+      const grant = storedGrant && capAgentGrant(storedGrant, membership?.role);
       if (
         !grant ||
         grant.agent.status !== 'active' ||
         grant.agent.revokedAt ||
         grant.space.deletedAt ||
-        !AgentAccessRoleSchema.safeParse(grant.role).success ||
         !allowedRoles.includes(agentRoleSpaceCapability(grant.role))
       ) {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'Agent does not have permission to access this space');
@@ -363,19 +369,7 @@ export class AuthorizationService {
       return spaces.map((space) => space.id);
     }
     if (principal.agentId) {
-      const grants = await this.prisma.agentGrant.findMany({
-        where: {
-          agentId: principal.agentId,
-          agent: this.liveAgentIdentityFilter(principal),
-          space: { deletedAt: null },
-        },
-        select: { spaceId: true, role: true, folderScopes: true },
-      });
-      return grants
-        .filter((grant) => !requiredScope || agentGrantAllowsScope(
-          grant.role, grant.folderScopes, requiredScope,
-        ))
-        .map((grant) => grant.spaceId);
+      return (await this.listAgentSpaceAccess(principal, requiredScope)).map(({ id }) => id);
     }
     const memberships = await this.prisma.spaceMember.findMany({
       where: { userId: principal.userId, space: { deletedAt: null } },
@@ -408,7 +402,21 @@ export class AuthorizationService {
       return spaces.map((space) => ({ id: space.id, name: space.name, role: roles.get(space.id) ?? 'viewer' }));
     }
     if (principal.agentId) {
-      const grants = await this.prisma.agentGrant.findMany({
+      return this.listAgentSpaceAccess(principal, requiredScope);
+    }
+    const memberships = await this.prisma.spaceMember.findMany({
+      where: { userId: principal.userId, space: { deletedAt: null } },
+      select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return memberships
+      .filter((membership) => !membership.space.deletedAt)
+      .map((membership) => ({ id: membership.space.id, name: membership.space.name, role: membership.role as SpaceRole }));
+  }
+
+  private async listAgentSpaceAccess(principal: Principal, requiredScope: string) {
+    const [grants, memberships] = await Promise.all([
+      this.prisma.agentGrant.findMany({
         where: {
           agentId: principal.agentId,
           agent: this.liveAgentIdentityFilter(principal),
@@ -419,21 +427,19 @@ export class AuthorizationService {
           space: { select: { id: true, name: true, deletedAt: true } },
         },
         orderBy: { createdAt: 'asc' },
-      });
-      return grants
-        .filter((grant) => !grant.space.deletedAt && (!requiredScope || agentGrantAllowsScope(
-          grant.role, grant.folderScopes, requiredScope,
-        )))
-        .map((grant) => ({ id: grant.space.id, name: grant.space.name, role: grant.role }));
-    }
-    const memberships = await this.prisma.spaceMember.findMany({
-      where: { userId: principal.userId, space: { deletedAt: null } },
-      select: { role: true, space: { select: { id: true, name: true, deletedAt: true } } },
-      orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.spaceMember.findMany({
+        where: { userId: principal.userId, space: { deletedAt: null } },
+        select: { spaceId: true, role: true },
+      }),
+    ]);
+    const ownerRoles = new Map(memberships.map(({ spaceId, role }) => [spaceId, role]));
+    return grants.flatMap((storedGrant) => {
+      const grant = capAgentGrant(storedGrant, ownerRoles.get(storedGrant.space.id));
+      if (!grant || grant.space.deletedAt
+        || (requiredScope && !agentGrantAllowsScope(grant.role, grant.folderScopes, requiredScope))) return [];
+      return [{ id: grant.space.id, name: grant.space.name, role: grant.role }];
     });
-    return memberships
-      .filter((membership) => !membership.space.deletedAt)
-      .map((membership) => ({ id: membership.space.id, name: membership.space.name, role: membership.role as SpaceRole }));
   }
 
   /** Keep owner, Agent and credential revocation independent of Space grants. */

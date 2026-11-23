@@ -10,6 +10,7 @@ import { PrismaService } from '../database/prisma.service';
 
 export type OnboardingPrincipal = {
   sessionId: string;
+  tokenHash: string;
   userId: string;
   packageVersion: string;
   purpose: string;
@@ -52,6 +53,7 @@ export class OnboardingTokenGuard implements CanActivate {
 
     request.onboarding = {
       sessionId: stored.id,
+      tokenHash,
       userId: stored.authorizedUserId,
       packageVersion: stored.packageVersion,
       purpose: stored.purpose,

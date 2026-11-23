@@ -18,6 +18,7 @@ import {
   type SupportedLocalSyncVersion,
 } from '../local-sync-version';
 import { AuditService } from '../security/audit.service';
+import type { OnboardingPrincipal } from '../../onboard/onboarding-token.guard';
 import { AgentService } from './agent.service';
 
 interface InstallationPayload {
@@ -29,6 +30,7 @@ interface InstallationPayload {
   pluginVersion: string;
   serverUrl: string;
   expiresAt: string;
+  personalKeyRotation?: number;
 }
 
 interface ExchangeReceipt {
@@ -37,6 +39,7 @@ interface ExchangeReceipt {
   spaceId: string;
   credentialId: string;
   grantId: string;
+  grantRole?: AgentAccessRole;
   role: AgentAccessRole;
   serverUrl: string;
   pluginVersion: SupportedLocalSyncVersion;
@@ -81,14 +84,17 @@ export class LocalSyncInstallationService {
     role: AgentAccessRole;
     pluginVersion: string;
     serverUrl: string;
+    onboarding: OnboardingPrincipal;
   }) {
-    return this.create(
+    return this.issue(
       input.ownerId,
       input.agentId,
       input.spaceId,
       input.role,
       input.pluginVersion,
       input.serverUrl,
+      false,
+      input.onboarding,
     );
   }
 
@@ -119,10 +125,30 @@ export class LocalSyncInstallationService {
     expiresAt: string;
     instructions: string;
   }> {
+    const { installationId, code, expiresAt, instructions } = await this.issue(
+      ownerId, agentId, spaceId, role, pluginVersion, serverUrl, isSuperAdmin,
+    );
+    return { installationId, code, expiresAt, instructions };
+  }
+
+  private async issue(
+    ownerId: string,
+    agentId: string,
+    spaceId: string,
+    role: AgentAccessRole,
+    pluginVersion: string,
+    serverUrl: string,
+    isSuperAdmin: boolean,
+    onboarding?: OnboardingPrincipal,
+  ) {
     this.assertSupportedVersion(pluginVersion);
     const canonicalServerUrl = serverUrl.replace(/\/+$/, '');
     this.assertSafeServerUrl(canonicalServerUrl);
-    await this.agents.assertCanIssueConnection(ownerId, agentId, spaceId, isSuperAdmin, role);
+    // Persist only the snapshot taken under the User lock. Even if Redis
+    // finishes after rotation, the stale code cannot cross the DB exchange fence.
+    const personalKeyRotation = await this.agents.assertCanIssueConnection(
+      ownerId, agentId, spaceId, isSuperAdmin, role, onboarding,
+    );
     const expiresAt = new Date(Date.now() + INSTALLATION_TTL_SECONDS * 1_000).toISOString();
 
     for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt += 1) {
@@ -138,6 +164,7 @@ export class LocalSyncInstallationService {
         pluginVersion,
         serverUrl: canonicalServerUrl,
         expiresAt,
+        personalKeyRotation,
       };
       const stored = await this.redis.setOnce(
         this.installationKey(installationId),
@@ -149,6 +176,7 @@ export class LocalSyncInstallationService {
           installationId,
           code,
           expiresAt,
+          personalKeyRotation,
           instructions: this.instructions(code, pluginVersion, canonicalServerUrl, agentId, spaceId),
         };
       }
@@ -232,6 +260,8 @@ export class LocalSyncInstallationService {
       role: payload.role,
       installationId,
       rawKey,
+      personalKeyRotation: payload.personalKeyRotation ?? 0,
+      expiresAt: new Date(payload.expiresAt),
     });
     const scopes = credential.scopes;
     try {
@@ -272,6 +302,7 @@ export class LocalSyncInstallationService {
         spaceId: payload.spaceId,
         credentialId: credential.id,
         grantId: credential.grantId,
+        grantRole: credential.grantRole,
         role: payload.role,
         serverUrl: payload.serverUrl,
         pluginVersion: payload.pluginVersion,
@@ -314,6 +345,7 @@ export class LocalSyncInstallationService {
         || typeof value.spaceId !== 'string'
         || typeof value.credentialId !== 'string'
         || typeof value.grantId !== 'string'
+        || (value.grantRole !== undefined && !AgentAccessRoleSchema.safeParse(value.grantRole).success)
         || !AgentAccessRoleSchema.safeParse(value.role).success
         || typeof value.serverUrl !== 'string'
         || !isSupportedLocalSyncVersion(value.pluginVersion)
@@ -338,6 +370,7 @@ export class LocalSyncInstallationService {
         agentId: receipt.agentId,
         credentialId: receipt.credentialId,
         grantId: receipt.grantId,
+        ...(receipt.grantRole ? { grantRole: receipt.grantRole } : {}),
         spaceId: receipt.spaceId,
         role: receipt.role,
       });
@@ -429,6 +462,9 @@ export class LocalSyncInstallationService {
         || typeof value.serverUrl !== 'string'
         || typeof value.expiresAt !== 'string'
         || !Number.isFinite(new Date(value.expiresAt).getTime())
+        || (value.personalKeyRotation !== undefined
+          && (typeof value.personalKeyRotation !== 'number'
+            || !Number.isSafeInteger(value.personalKeyRotation) || value.personalKeyRotation < 0))
       ) {
         throw new Error('Invalid installation payload');
       }

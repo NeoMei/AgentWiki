@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import api from '../../api/client';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -44,14 +44,50 @@ describe('AgentList create dialog', () => {
     expect(await screen.findByRole('link', { name: /Codex/ })).toHaveTextContent("Owner: Ops $& $` $' (ops@example.test)");
   });
 
-  it('closes with Escape and restores focus to the new-agent button', async () => {
+  it('opens the public connection guide without precreating an Agent', async () => {
+    render(<MemoryRouter initialEntries={['/agents']}><LanguageProvider>
+      <Routes>
+        <Route path="/agents" element={<AgentList />} />
+        <Route path="/guide/agent-onboard" element={<h1>Agent onboarding guide</h1>} />
+      </Routes>
+    </LanguageProvider></MemoryRouter>);
+
+    const connect = await screen.findByRole('link', { name: '接入智能体' });
+    expect(connect).toHaveAttribute('href', '/guide/agent-onboard');
+    fireEvent.click(connect);
+    expect(screen.getByRole('heading', { name: 'Agent onboarding guide' })).toBeVisible();
+    expect(api.post).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows reconnect only for active Agents flagged by the API', async () => {
+    const base = { status: 'active', grants: [], _count: { credentials: 0, auditEvents: 0 } };
+    vi.mocked(api.get).mockResolvedValue({ data: [
+      { ...base, id: 'needs-reconnect', name: '待恢复助手', reconnectRequired: true },
+      { ...base, id: 'legacy', name: '旧接口助手' },
+      { ...base, id: 'connected', name: '现有助手', reconnectRequired: false },
+      { ...base, id: 'paused', name: '暂停助手', status: 'paused', reconnectRequired: true },
+      { ...base, id: 'archived', name: '归档助手', status: 'archived', reconnectRequired: true },
+    ] });
+    render(<MemoryRouter><LanguageProvider><AgentList /></LanguageProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('link', { name: /待恢复助手/ })).toHaveTextContent('需要重连');
+    expect(screen.getByRole('link', { name: /旧接口助手/ })).toHaveTextContent('已启用');
+    expect(screen.getByRole('link', { name: /现有助手/ })).toHaveTextContent('已启用');
+    expect(screen.getByRole('link', { name: /暂停助手/ })).toHaveTextContent('已暂停');
+    expect(screen.getAllByText('需要重连')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '查看已归档智能体' }));
+    expect(await screen.findByRole('link', { name: /归档助手/ })).not.toHaveTextContent('需要重连');
+  });
+
+  it('closes manual creation with Escape and restores focus to its button', async () => {
     render(
       <MemoryRouter>
         <LanguageProvider><AgentList /></LanguageProvider>
       </MemoryRouter>,
     );
 
-    const opener = await screen.findByRole('button', { name: '新建智能体' });
+    const opener = await screen.findByRole('button', { name: '手动创建' });
     opener.focus();
     fireEvent.click(opener);
     const dialog = screen.getByRole('dialog', { name: '创建智能体' });

@@ -20,6 +20,7 @@ describe('MCP governed Page proposals', () => {
       agent: { findUnique: async () => ({ status: 'active', revokedAt: null,
         approvalMode: options.agentMode ?? 'scoped-auto-publish', owner: { deletedAt: null, lockedAt: null } }) },
       agentCredential: { findFirst: async () => ({ revokedAt: null, expiresAt: null }) },
+      spaceMember: { findUnique: async () => ({ role: 'owner' }) },
       agentGrant: { findUnique: async () => ({ id: 'grant-1', role: options.role ?? 'editor', folderScopes: [],
         agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } }) },
       changeSet: { create: async ({ data }: any) => {

@@ -15,6 +15,8 @@ import { BusinessException } from '../core/filters/business-error';
 import { isSupportedLocalSyncVersion } from '../core/local-sync-version';
 import { PrismaService } from '../database/prisma.service';
 import { RedisService } from '../database/redis.service';
+import { lockConnectionOwner, readPersonalKeyRotation } from '../core/user/personal-key-rotation';
+import { assertCurrentOnboardingAuthorization } from './onboarding-authorization';
 import type { OnboardingPrincipal } from './onboarding-token.guard';
 import {
   hashServerPlan,
@@ -44,6 +46,7 @@ type ResourceIds = {
   spaceId: string;
   agentId: string;
   pendingInstallationId?: string;
+  pendingInstallationRotation?: number;
 };
 
 type BootstrapResources = {
@@ -111,6 +114,7 @@ export class OnboardBootstrapService {
     const normalized = normalizeServerPlan(plan);
     const canonicalPlanHash = hashServerPlan(plan);
     this.assertAuthorizedPlan(context, normalized, suppliedPlanHash, canonicalPlanHash);
+    await this.currentRotation(context);
     const keyHash = this.hash(key);
     const claim = await this.claim(context.sessionId, keyHash, canonicalPlanHash);
 
@@ -119,10 +123,11 @@ export class OnboardBootstrapService {
     }
     if (!claim.fence) {
       if (claim.record.status === 'completed') {
-        return this.readCompletedReplay(claim.record, context.sessionId, context, normalized);
+        return this.readCompletedReplay(claim.record, context, normalized);
       }
       const replay = await this.waitForWinner(
-        context.sessionId,
+        context,
+        normalized,
         keyHash,
         canonicalPlanHash,
       );
@@ -155,8 +160,7 @@ export class OnboardBootstrapService {
         : await this.createResources(
           claim.record.id,
           fence,
-          context.userId,
-          context.sessionId,
+          context,
           plan,
         );
 
@@ -176,11 +180,16 @@ export class OnboardBootstrapService {
         role: plan.role,
         pluginVersion: plan.packageVersion,
         serverUrl: this.publicApiUrl(),
+        onboarding: context,
       });
       issuedInstallationId = installation.installationId;
       await this.renew(claim.record.id, fence);
 
-      resources.ids = { ...resources.ids, pendingInstallationId: installation.installationId };
+      resources.ids = {
+        ...resources.ids,
+        pendingInstallationId: installation.installationId,
+        pendingInstallationRotation: installation.personalKeyRotation,
+      };
       await this.persistResourceIds(claim.record.id, fence, resources.ids);
       issuedInstallationPersisted = true;
       const response = this.response(resources, plan.role, plan.scopes, installation);
@@ -206,7 +215,8 @@ export class OnboardBootstrapService {
       });
       if (completion.count !== 1) throw new LostBootstrapOwnershipError();
       completed = true;
-      await this.consumeToken(context.sessionId, fence);
+      await this.assertInstallationCurrent(context, resources.ids);
+      await this.consumeToken(context, fence);
       return response;
     } catch (error) {
       if (error instanceof AmbiguousReplayStateError) {
@@ -334,7 +344,7 @@ export class OnboardBootstrapService {
     } catch {
       throw new AmbiguousReplayStateError();
     }
-    if (!serialized) {
+    if (!serialized || (resources.ids.pendingInstallationRotation ?? 0) !== await this.currentRotation(context)) {
       await this.revokePreviousPending(context.userId, claim, resources);
       return null;
     }
@@ -367,7 +377,8 @@ export class OnboardBootstrapService {
       data: { status: 'completed', resultHash, leaseExpiresAt: null },
     });
     if (completion.count !== 1) throw new LostBootstrapOwnershipError();
-    await this.consumeToken(context.sessionId, claim.fence);
+    await this.assertInstallationCurrent(context, resources.ids);
+    await this.consumeToken(context, claim.fence);
     return response;
   }
 
@@ -393,12 +404,18 @@ export class OnboardBootstrapService {
 
   private async readCompletedReplay(
     record: BootstrapRecord,
-    sessionId: string,
-    context?: OnboardingPrincipal,
-    plan?: NormalizedServerPlan,
+    context: OnboardingPrincipal,
+    plan: NormalizedServerPlan,
   ): Promise<OnboardBootstrapResponse> {
     if (!record.executionId || !record.resultHash) {
       throw this.retryable('Completed onboarding result is unavailable');
+    }
+    const rotation = await this.currentRotation(context);
+    const ids = record.resourceIds ? this.resourceIds(record.resourceIds) : undefined;
+    const rotated = (ids?.pendingInstallationRotation ?? 0) !== rotation;
+    if (rotated) {
+      if (context.purpose === 'agent-connect') return this.reissueCompleted(record, context, plan);
+      throw new BusinessException('AUTH_EXPIRED');
     }
     const fence = { executionId: record.executionId, generation: record.generation };
     let serialized: string | null;
@@ -408,7 +425,7 @@ export class OnboardBootstrapService {
       throw this.retryable('Completed onboarding result is temporarily unavailable');
     }
     if (!serialized) {
-      if (context?.purpose === 'agent-connect' && plan) return this.reissueCompleted(record, context, plan);
+      if (context.purpose === 'agent-connect') return this.reissueCompleted(record, context, plan);
       throw this.retryable('Completed onboarding result is unavailable');
     }
     const response = this.parseReplay(serialized);
@@ -418,11 +435,12 @@ export class OnboardBootstrapService {
         'Saved onboarding result is inconsistent',
       );
     }
-    if (context?.purpose === 'agent-connect' && plan) {
+    if (context.purpose === 'agent-connect') {
       await this.loadResources(this.resourceIds(record.resourceIds), context.userId, plan);
       if (new Date(response.installation.expiresAt).getTime() <= Date.now()) return this.reissueCompleted(record, context, plan);
     }
-    await this.consumeToken(sessionId, fence);
+    await this.assertInstallationCurrent(context, ids);
+    await this.consumeToken(context, fence);
     return response;
   }
 
@@ -444,10 +462,12 @@ export class OnboardBootstrapService {
   }
 
   private async waitForWinner(
-    deviceSessionId: string,
+    context: OnboardingPrincipal,
+    plan: NormalizedServerPlan,
     idempotencyKeyHash: string,
     serverPlanHash: string,
   ): Promise<OnboardBootstrapResponse | null> {
+    const deviceSessionId = context.sessionId;
     const deadline = Date.now() + LOSER_WAIT_MS;
     let delay = INITIAL_BACKOFF_MS;
     while (Date.now() < deadline) {
@@ -458,7 +478,7 @@ export class OnboardBootstrapService {
         throw new BusinessException('ONBOARDING_REPLAY_MISMATCH');
       }
       if (latest.status === 'completed') {
-        return this.readCompletedReplay(latest, deviceSessionId);
+        return this.readCompletedReplay(latest, context, plan);
       }
       if (latest.status === 'failed') return null;
       delay = Math.min(delay * 2, MAX_BACKOFF_MS);
@@ -469,11 +489,13 @@ export class OnboardBootstrapService {
   private async createResources(
     bootstrapId: string,
     fence: ExecutionFence,
-    userId: string,
-    deviceSessionId: string,
+    context: OnboardingPrincipal,
     plan: NormalizedServerPlan,
   ): Promise<BootstrapResources> {
+    const { userId, sessionId: deviceSessionId } = context;
     return this.prisma.$transaction(async (tx) => {
+      await lockConnectionOwner(tx, userId);
+      await assertCurrentOnboardingAuthorization(tx, context);
       const space = plan.space.mode === 'create'
         ? await tx.space.create({
           data: {
@@ -632,10 +654,12 @@ export class OnboardBootstrapService {
     }
   }
 
-  private async consumeToken(sessionId: string, fence: ExecutionFence): Promise<void> {
+  private async consumeToken(context: OnboardingPrincipal, fence: ExecutionFence): Promise<void> {
     const consumed = await this.prisma.onboardingDeviceSession.updateMany({
       where: {
-        id: sessionId,
+        id: context.sessionId,
+        status: 'authorized',
+        onboardingTokenHash: context.tokenHash,
         tokenConsumedAt: null,
         bootstrap: {
           is: {
@@ -648,7 +672,7 @@ export class OnboardBootstrapService {
       data: { tokenConsumedAt: new Date() },
     });
     if (consumed.count === 0) {
-      const current = await this.findBootstrap(sessionId);
+      const current = await this.findBootstrap(context.sessionId);
       if (
         !current
         || current.status !== 'completed'
@@ -757,6 +781,8 @@ export class OnboardBootstrapService {
       || typeof ids.spaceId !== 'string'
       || typeof ids.agentId !== 'string'
       || (ids.pendingInstallationId !== undefined && typeof ids.pendingInstallationId !== 'string')
+      || (ids.pendingInstallationRotation !== undefined
+        && (!Number.isSafeInteger(ids.pendingInstallationRotation) || ids.pendingInstallationRotation < 0))
     ) {
       throw new BusinessException('RESOURCE_CONFLICT', 'Onboarding resource recovery state is invalid');
     }
@@ -814,6 +840,20 @@ export class OnboardBootstrapService {
     return this.prisma.onboardingBootstrap.findUnique({
       where: { deviceSessionId },
     }) as Promise<BootstrapRecord | null>;
+  }
+
+  private async currentRotation(context: OnboardingPrincipal): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockConnectionOwner(tx, context.userId);
+      await assertCurrentOnboardingAuthorization(tx, context);
+      return readPersonalKeyRotation(tx, context.userId);
+    });
+  }
+
+  private async assertInstallationCurrent(context: OnboardingPrincipal, ids?: ResourceIds): Promise<void> {
+    if ((ids?.pendingInstallationRotation ?? 0) !== await this.currentRotation(context)) {
+      throw new BusinessException('AUTH_EXPIRED');
+    }
   }
 
   private validateIdempotencyKey(value: unknown): string {

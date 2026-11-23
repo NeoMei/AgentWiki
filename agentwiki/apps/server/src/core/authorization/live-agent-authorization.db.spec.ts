@@ -29,6 +29,8 @@ describe('live Agent authorization row coordination', () => {
         role: 'publisher',
         installationId: `initial-${suffix}`,
         rawKey: `agk_initial_${suffix}`,
+        personalKeyRotation: 0,
+        expiresAt: new Date(Date.now() + 60_000),
       });
 
       let reportLocked!: () => void;
@@ -56,6 +58,8 @@ describe('live Agent authorization row coordination', () => {
         role: 'reader',
         installationId: `downgrade-${suffix}`,
         rawKey: `agk_downgrade_${suffix}`,
+        personalKeyRotation: 0,
+        expiresAt: new Date(Date.now() + 60_000),
       }).finally(() => { exchangeFinished = true; });
 
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -90,6 +94,7 @@ describe('live Agent authorization row coordination', () => {
       const initial = await new AgentService(first as any).exchangeConnectionIntent({
         ownerId: userId, agentId, spaceId, role: 'editor',
         installationId: `revoke-${suffix}`, rawKey: `agk_revoke_${suffix}`,
+        personalKeyRotation: 0, expiresAt: new Date(Date.now() + 60_000),
       });
 
       let reportLocked!: () => void;
@@ -142,6 +147,7 @@ describe('live Agent authorization row coordination', () => {
       const initial = await new AgentService(first as any).exchangeConnectionIntent({
         ownerId: userId, agentId, spaceId, role: 'editor',
         installationId: `delete-${suffix}`, rawKey: `agk_delete_${suffix}`,
+        personalKeyRotation: 0, expiresAt: new Date(Date.now() + 60_000),
       });
 
       let reportLocked!: () => void;

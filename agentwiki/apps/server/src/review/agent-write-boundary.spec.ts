@@ -145,6 +145,7 @@ describe('Agent write review boundary', () => {
     const prisma = {
       changeSet: { findUnique: jest.fn().mockResolvedValue({ id: 'change-1', spaceId: 'space-1' }) },
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1',
         role: 'publisher',
@@ -196,6 +197,7 @@ describe('Agent write review boundary', () => {
   ] as const)('denies publisher Agents the %s member mutation boundary', async (_action, invoke) => {
     const prisma = {
       space: { findUnique: jest.fn().mockResolvedValue({ id: 'space-1', deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1',
         role: 'publisher',

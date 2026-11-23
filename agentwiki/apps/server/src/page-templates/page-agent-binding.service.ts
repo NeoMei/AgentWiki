@@ -5,6 +5,7 @@ import {
   AuthorizationService,
   type Principal,
 } from '../core/authorization/authorization.service';
+import { capAgentRole } from '../core/authorization/agent-owner-role';
 import { BusinessException } from '../core/filters/business-error';
 import type { SpaceTreeLockedTransaction } from '../core/sync/space-revision-writer.service';
 import { ContentTreeService } from '../content-tree/content-tree.service';
@@ -278,7 +279,11 @@ async function assertAgentsCanExecute(
           id: true,
           status: true,
           revokedAt: true,
-          owner: { select: { deletedAt: true, lockedAt: true } },
+          owner: { select: {
+            deletedAt: true,
+            lockedAt: true,
+            spaces: { where: { spaceId }, select: { role: true } },
+          } },
         },
       },
       space: { select: { deletedAt: true } },
@@ -293,7 +298,8 @@ async function assertAgentsCanExecute(
       || grant.space.deletedAt) {
       throw new BusinessException('COLLABORATION_AGENT_INACTIVE');
     }
-    if (!agentRoleAllowsScope(grant.role, 'collaboration:execute')) {
+    const role = capAgentRole(grant.role, grant.agent.owner.spaces[0]?.role);
+    if (!role || !agentRoleAllowsScope(role, 'collaboration:execute')) {
       throw new BusinessException('COLLABORATION_AGENT_CANNOT_EXECUTE');
     }
   }

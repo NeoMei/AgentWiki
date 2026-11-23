@@ -111,7 +111,7 @@ function composeInstallationFlow(input?: {
     }),
   };
   prisma.agentGrant = {
-    findUnique: jest.fn(async () => state.grant ? { role: state.grant.role } : null),
+    findUnique: jest.fn(async () => state.grant),
     upsert: jest.fn(async ({ create, update }: any) => {
       const grant = state.grant
         ? { ...state.grant, ...update }
@@ -120,7 +120,9 @@ function composeInstallationFlow(input?: {
       return { id: grant.id, role: grant.role, folderScopes: grant.folderScopes };
     }),
   };
+  prisma.apiKeyCredential = { count: jest.fn().mockResolvedValue(0) };
   prisma.agentCredential = {
+    fields: { revokedAt: {} },
     upsert: jest.fn(async ({ create }: any) => {
       state.credential ??= {
         id: 'credential-1',

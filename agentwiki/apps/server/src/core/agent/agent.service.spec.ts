@@ -14,9 +14,10 @@ describe('AgentService grant scope validation', () => {
     agent: { create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     space: { findFirst: jest.fn() },
     user: { findFirst: jest.fn() },
+    apiKeyCredential: { count: jest.fn().mockResolvedValue(0) },
     agentCredential: {
       create: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(),
-      updateMany: jest.fn(),
+      updateMany: jest.fn(), fields: { revokedAt: {} },
     },
     agentGrant: { findUnique: jest.fn(), findFirst: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
     agentAuditEvent: { create: jest.fn(), findMany: jest.fn() },
@@ -164,11 +165,11 @@ describe('AgentService grant scope validation', () => {
 
     await expect(service.assertCanIssueConnection(
       'owner-1', 'agent-1', 'space-1', true,
-    )).resolves.toBeUndefined();
+    )).resolves.toBe(0);
 
     expect(prisma.space.findFirst).toHaveBeenCalledWith({
       where: { id: 'space-1', deletedAt: null, members: { some: { userId: 'owner-1', role: { in: ['owner', 'admin'] } } } },
-      select: { id: true },
+      select: { id: true, members: { where: { userId: 'owner-1' }, select: { role: true } } },
     });
   });
 
@@ -220,7 +221,7 @@ describe('AgentService grant scope validation', () => {
     const result = service.assertCanIssueConnection(
       'owner-1', 'agent-1', 'space-1', false, requestedRole,
     );
-    if (allowed) await expect(result).resolves.toBeUndefined();
+    if (allowed) await expect(result).resolves.toBe(0);
     else await expect(result).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -249,7 +250,7 @@ describe('AgentService grant scope validation', () => {
 
     expect(prisma.space.findFirst).toHaveBeenCalledWith({
       where: { id: 'space-deleted', deletedAt: null, members: { some: { userId: 'owner-1', role: { in: ['owner', 'admin'] } } } },
-      select: { id: true },
+      select: { id: true, members: { where: { userId: 'owner-1' }, select: { role: true } } },
     });
   });
 
@@ -414,7 +415,9 @@ describe('AgentService grant scope validation', () => {
         id: true,
         role: true,
         folderScopes: true,
-        space: { select: { deletedAt: true } },
+        space: { select: {
+          deletedAt: true, members: { where: { userId: 'owner-1' }, select: { role: true } },
+        } },
       },
     });
 
@@ -438,7 +441,7 @@ describe('AgentService grant scope validation', () => {
       id: 'grant-1',
       role: 'editor',
       folderScopes: [],
-      space: { deletedAt: null },
+      space: { deletedAt: null, members: [{ role: 'owner' }] },
     });
 
     await expect(service.assertConnectionReceipt({
@@ -455,7 +458,9 @@ describe('AgentService grant scope validation', () => {
         id: true,
         role: true,
         folderScopes: true,
-        space: { select: { deletedAt: true } },
+        space: { select: {
+          deletedAt: true, members: { where: { userId: 'owner-1' }, select: { role: true } },
+        } },
       },
     }));
   });

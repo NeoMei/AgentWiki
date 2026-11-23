@@ -5,6 +5,7 @@ import {
 
 describe('lockLiveAgentAuthorization', () => {
   const validState = {
+    spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
     agentCredential: {
       findFirst: jest.fn().mockResolvedValue({
         authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
@@ -44,12 +45,13 @@ describe('lockLiveAgentAuthorization', () => {
       ownerId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1',
     }, 'space-1');
 
-    expect(queries).toHaveLength(5);
+    expect(queries).toHaveLength(6);
     expect(queries[0]).toContain('FROM "User"');
     expect(queries[1]).toContain('FROM "Agent"');
     expect(queries[2]).toContain('FROM "AgentGrant"');
     expect(queries[3]).toContain('FROM "AgentCredential"');
     expect(queries[4]).toContain('FROM "Space"');
+    expect(queries[5]).toContain('FROM "SpaceMember"');
     expect(queries.every((query) => query.includes('FOR NO KEY UPDATE'))).toBe(true);
     expect(result).toMatchObject({
       grant: { id: 'grant-1', role: 'editor', folderScopes: ['folders:read', 'folders:write'] },
@@ -95,7 +97,7 @@ describe('lockLiveAgentAuthorization', () => {
 
     expect(result).toBeNull();
     expect(events.filter((event) => event.startsWith('lock:'))).toEqual([
-      'lock:User', 'lock:Agent', 'lock:AgentGrant', 'lock:AgentCredential', 'lock:Space',
+      'lock:User', 'lock:Agent', 'lock:AgentGrant', 'lock:AgentCredential', 'lock:Space', 'lock:SpaceMember',
     ]);
     expect(events.indexOf('lock:AgentCredential')).toBeLessThan(events.indexOf('space-advisory'));
     expect(events.indexOf('space-advisory')).toBeLessThan(events.indexOf('lock:Space'));
@@ -130,6 +132,23 @@ describe('lockLiveAgentAuthorization', () => {
     expect(db.$queryRaw.mock.calls.every(([query]: any[]) => (
       !query.strings.join(' ').includes('FROM "Space"')
     ))).toBe(true);
+  });
+
+  it('rechecks the owner membership after waiting for the Space advisory lock', async () => {
+    const db = {
+      ...validState,
+      spaceMember: { findUnique: jest.fn().mockResolvedValueOnce({ role: 'editor' }).mockResolvedValueOnce({ role: 'viewer' }) },
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'locked' }]),
+    } as any;
+    const acquireSpaceAdvisory = jest.fn(async () => 'space-lock');
+
+    const result = await lockLiveAgentAuthorizationAcrossSpaceBoundary(
+      db, { ownerId: 'owner-1', agentId: 'agent-1', credentialId: 'credential-1' }, 'space-1',
+      (state) => state.grant.role === 'editor', acquireSpaceAdvisory,
+    );
+
+    expect(acquireSpaceAdvisory).toHaveBeenCalledTimes(1);
+    expect(result).toBeNull();
   });
 
   it('stops before state reads when a required lock row no longer exists', async () => {

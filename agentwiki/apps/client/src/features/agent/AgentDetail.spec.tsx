@@ -152,6 +152,49 @@ describe('AgentDetail', () => {
     expect(screen.queryByRole('heading', { name: '凭据' })).not.toBeInTheDocument();
   });
 
+  it('opens the existing installation card and generates instructions for the original Agent ID', async () => {
+    vi.mocked(api.get).mockReset().mockImplementation(async (url: string) => {
+      if (url === '/agents/agent-1') return { data: {
+        id: 'agent-1',
+        name: '原有助手',
+        status: 'active',
+        reconnectRequired: true,
+        grants: [{ id: 'grant-1', spaceId: 'space-1', role: 'reader', space: { id: 'space-1', name: '团队知识库' } }],
+        credentials: [],
+      } };
+      if (url === '/spaces?take=100') return { data: { data: [
+        { id: 'space-2', name: '其他空间', members: [{ userId: 'owner-1', role: 'owner' }] },
+        { id: 'space-1', name: '团队知识库', members: [{ userId: 'owner-1', role: 'owner' }] },
+      ] } };
+      return { data: { data: [] } };
+    });
+    vi.mocked(api.post).mockResolvedValue({ data: {
+      installationId: 'install-1',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      instructions: 'Reconnect the original Agent',
+    } });
+    renderDetail();
+
+    expect(await screen.findByText('需要重连')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: '重新接入此智能体' }));
+    expect(screen.getByRole('button', { name: '访问权限', pressed: true })).toHaveFocus();
+    expect(screen.getByText(/重新接入或连接另一客户端时.*生成接入指令/)).toBeVisible();
+    expect(api.post).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '生成统一网关接入指令' }));
+    expect(await screen.findByText('Reconnect the original Agent')).toBeVisible();
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/agents/agent-1/local-sync-installations', expect.objectContaining({
+      spaceId: 'space-1', role: 'reader',
+    }));
+    expect(api.put).not.toHaveBeenCalled();
+  });
+
+  it('retains the ordinary active state when the older Agent detail payload lacks reconnectRequired', async () => {
+    renderDetail();
+
+    expect(await screen.findByText('已启用')).toBeVisible();
+    expect(screen.queryByRole('button', { name: '重新接入此智能体' })).not.toBeInTheDocument();
+  });
+
   it('hides the old Agent while a new route loads and ignores old-entity actions', async () => {
     const nextAgent = deferred<any>();
     vi.mocked(api.get).mockReset().mockImplementation((url: string) => {

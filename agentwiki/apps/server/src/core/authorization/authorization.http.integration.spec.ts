@@ -108,6 +108,7 @@ describe('HTTP authentication and space authorization', () => {
   });
 
   it('uses the target Space live grant regardless of a legacy principal binding', async () => {
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'owner' });
     prisma.agentGrant.findUnique.mockResolvedValue({ id: 'grant-reader', role: 'reader', agent: { status: 'active', revokedAt: null }, space: { deletedAt: null } });
     expect((await fetch(`${baseUrl}/permission-probe/space-1`, { headers: { 'x-api-key': 'agk_reader' } })).status).toBe(200);
     expect((await fetch(`${baseUrl}/permission-probe/space-1`, { headers: { 'x-api-key': 'agk_wrong_binding' } })).status).toBe(200);

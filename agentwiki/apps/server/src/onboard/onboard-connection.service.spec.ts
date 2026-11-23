@@ -34,6 +34,7 @@ describe('browser connection authorization', () => {
       return value instanceof Date ? stored[key]?.getTime() === value.getTime() : stored[key] === value;
     });
     prisma = {
+      $queryRaw: jest.fn(),
       onboardingDeviceSession: {
         findUnique: jest.fn(async ({where}: any) => matches(where) ? {...stored} : null),
         updateMany: jest.fn(async ({where, data}: any) => {

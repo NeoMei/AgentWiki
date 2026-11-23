@@ -1813,6 +1813,7 @@ describe('one-shot review-publish and agent auto-publish', () => {
     agent: { findUnique: jest.fn() },
     agentCredential: { findFirst: jest.fn() },
     agentGrant: { findUnique: jest.fn() },
+    spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
     page: { create: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     pageSearchDocument: { upsert: jest.fn(), deleteMany: jest.fn() },
     evidence: { updateMany: jest.fn() },

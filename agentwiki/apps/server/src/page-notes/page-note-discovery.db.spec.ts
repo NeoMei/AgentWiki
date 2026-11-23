@@ -220,7 +220,10 @@ dbDescribe('page note discovery in real PostgreSQL', () => {
     await expect(discover(principal)).rejects.toThrow();
   });
 
-  it('uses each live Agent grant and its own author identity instead of the owner membership or mentions', async () => {
+  it('requires an Agent grant and keeps Agent authorship separate from human authorship and mentions', async () => {
+    await db.spaceMember.update({
+      where: { userId_spaceId: { userId: ownerId, spaceId } }, data: { role: 'editor' },
+    });
     const agent = await db.agent.create({ data: { ownerId, name: 'Discovery Agent' } });
     const credential = await db.agentCredential.create({ data: { agentId: agent.id, name: 'Test', prefix: prefix.slice(0, 8), keyHash: randomUUID() } });
     await db.agentGrant.create({ data: { agentId: agent.id, spaceId, role: 'reader' } });
@@ -239,6 +242,32 @@ dbDescribe('page note discovery in real PostgreSQL', () => {
     expect(await discover(principal)).toEqual(emptyResult);
     await db.agentCredential.update({ where: { id: credential.id }, data: { revokedAt: new Date() } });
     await expect(discover(principal)).rejects.toThrow();
+  });
+
+  it('rechecks the Agent owner membership for edit rights, notes, totals and access revision', async () => {
+    const agent = await db.agent.create({ data: { ownerId, name: 'Discovery Agent' } });
+    const credential = await db.agentCredential.create({ data: {
+      agentId: agent.id, name: 'Test', prefix: prefix.slice(0, 8), keyHash: randomUUID(),
+    } });
+    const member = { userId_spaceId: { userId: ownerId, spaceId } };
+    await db.spaceMember.update({ where: member, data: { role: 'editor' } });
+    await db.agentGrant.create({ data: { agentId: agent.id, spaceId, role: 'publisher' } });
+    const own = await note({ authorType: 'agent', authorId: agent.id });
+    const principal = { userId: ownerId, agentId: agent.id, credentialId: credential.id };
+    const before = await discover(principal, { author: 'me' });
+    expect(before.notes).toMatchObject([{ id: own.id, canEdit: true }]);
+
+    await db.spaceMember.update({ where: member, data: { role: 'viewer' } });
+    const downgraded = await discover(principal, { author: 'me' });
+    expect(downgraded.notes).toMatchObject([{ id: own.id, canEdit: false }]);
+    expect(downgraded.total).toBe(1);
+    expect(downgraded.accessRevision).toBe(before.accessRevision);
+
+    await db.spaceMember.delete({ where: member });
+    await db.user.update({ where: { id: ownerId }, data: { platformRole: 'super_admin' } });
+    const removed = await discover(principal, { author: 'me' });
+    expect(removed).toEqual(emptyResult);
+    expect(removed.accessRevision).not.toBe(before.accessRevision);
   });
 
   it('rejects locked/deleted users and revoked or incorrectly owned Agents even with old principal hints', async () => {

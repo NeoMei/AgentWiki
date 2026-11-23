@@ -64,7 +64,7 @@ export const UsageGuide: React.FC = () => {
               </div>
               <h3 className="font-semibold text-gray-900 mb-2">{zh ? '接入 Agent' : 'Connect an Agent'}</h3>
               <p className="text-sm text-gray-600">
-                {zh ? '创建 Agent 并授予权限，让它成为你的知识管理伙伴。' : 'Create an Agent and grant permissions to make it your knowledge management partner.'}
+                {zh ? '把接入提示词交给目标智能体，在浏览器授权并确认接入计划。' : 'Give the connection prompt to the target Agent, authorize in your browser, and confirm the plan.'}
               </p>
             </div>
           </div>
@@ -78,7 +78,7 @@ export const UsageGuide: React.FC = () => {
               <Rocket size={24} />
             </div>
             <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-900 mb-1">{zh ? '最快方式：让 Agent 帮你接入' : 'Fastest way: let an Agent set you up'}</h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">{zh ? '首次接入智能体' : 'Connect an Agent for the first time'}</h3>
               <p className="text-sm text-gray-600">{t('guide.onboardCard')}</p>
             </div>
             <Link
@@ -95,7 +95,7 @@ export const UsageGuide: React.FC = () => {
         <section className="mb-16">
           <h2 className="text-2xl font-bold text-gray-900 mb-8 flex items-center gap-2">
             <Bot className="text-purple-600" size={24} />
-            {zh ? '如何接入 Agent' : 'How to Connect an Agent'}
+            {zh ? '已有智能体的接入与授权' : 'Connect and authorize an existing Agent'}
           </h2>
 
           <div className="space-y-8">
@@ -104,9 +104,9 @@ export const UsageGuide: React.FC = () => {
               <div className="flex items-start gap-4 mb-6">
                 <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-lg font-bold">1</div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '创建 Agent' : 'Create the Agent'}</h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '找到原智能体' : 'Find the original Agent'}</h3>
                   <p className="text-gray-600">
-                    {zh ? '在顶部导航栏点击「智能体」，进入 Agent 列表页面，点击「创建智能体」按钮并填写名称和描述。访问授权会在连接到 Space 时统一选择。' : 'Click "Agents" in the top nav, open the Agent list, and create an Agent with a name and description. Access authorization is selected when connecting it to a Space.'}
+                    {zh ? '重新接入请打开原智能体的详情页。若要先建立智能体身份，也可以在列表选择「手动创建」，随后从该智能体的详情页接入。' : 'To reconnect, open the original Agent’s details. To set up an identity in advance, choose “Create manually” from the list, then connect from that Agent’s details.'}
                   </p>
                 </div>
               </div>
@@ -119,7 +119,7 @@ export const UsageGuide: React.FC = () => {
               />
               <div className="mt-3 text-center text-xs text-gray-500 flex items-center justify-center gap-1">
                 <MousePointerClick size={12} />
-                {zh ? 'Agent 列表页面 — 点击右上角「创建智能体」' : 'Agent List Page — Click "New agent" in the top right'}
+                {zh ? '从智能体列表打开对应的详情页' : 'Open the Agent’s details from the list'}
               </div>
             </div>
 
@@ -219,7 +219,7 @@ export const UsageGuide: React.FC = () => {
                 <div className="flex-1 min-w-0">
                   <h3 className="text-xl font-semibold text-gray-900 mb-2">{zh ? '确认 Agent 接入与页面发布结果' : 'Confirm Agent Connection and Page Publishing'}</h3>
                   <p className="text-gray-600 mb-5">
-                    {zh ? '无论使用哪种本地 Agent，接入成功都应同时看到三项结果：Agent 明确报告成功、AgentWiki 中出现正式页面、活动记录中出现对应的 MCP 工具调用。以下截图继续展示 OpenCode 的真实验证结果。' : 'Regardless of which local Agent you use, a successful connection has three signals: the Agent reports success, the published page appears in AgentWiki, and the activity log records the corresponding MCP tool calls. The English screenshots use an illustrative Product Handbook project with sample Agent messages and data.'}
+                    {zh ? '让智能体读取一篇有权限的已知页面，再到活动记录核对对应的 MCP 调用。下方 OpenCode 示例还展示了有写入权限时如何验证页面发布结果。' : 'Ask the Agent to read a known page it can access, then check the activity log for the MCP call. The example below also shows how to verify publishing when the Agent has write access.'}
                   </p>
                   <div className="space-y-6">
                     <div>

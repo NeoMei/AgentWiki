@@ -1,17 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { Mail, Calendar, Save, X, Key, Copy, Check, RefreshCw, Trash2, AlertTriangle, Bot } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
+import { ModalDialog } from '../../components/ModalDialog';
 import { UserAvatar } from '../../components/UserAvatar';
+import { AgentStatusBadge, type AgentConnectionStatus } from '../agent/AgentStatusBadge';
 import { useUniHubStatus } from '../auth/useUniHubStatus';
 
-interface OwnedAgent {
+interface OwnedAgent extends AgentConnectionStatus {
   id: string;
   name: string;
   description?: string | null;
-  status: string;
   grants?: Array<{ id: string }>;
 }
 
@@ -26,18 +27,22 @@ export const Profile: React.FC = () => {
   const [success, setSuccess] = useState(false);
 
   // Personal access token state
-  const [hasApiKey, setHasApiKey] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [keyLoading, setKeyLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showKeyConfirm, setShowKeyConfirm] = useState(false);
   const [showRevokeConfirm, setShowRevokeConfirm] = useState(false);
   const [agents, setAgents] = useState<OwnedAgent[]>([]);
+  const copyKeyRef = useRef<HTMLButtonElement>(null);
+  // The profile response only includes unrevoked keys.
+  const shouldConfirmKey = hasApiKey !== false || agents.length > 0;
 
   const fetchProfile = async () => {
     try {
       const [res, agentsRes] = await Promise.all([
         api.get('/users/me'),
-        api.get('/agents'),
+        api.get<OwnedAgent[]>('/agents'),
       ]);
       setFormData({ name: res.data.name || '', email: res.data.email || '' });
       setHasApiKey((res.data.apiKeys || []).length > 0);
@@ -81,12 +86,28 @@ export const Profile: React.FC = () => {
     setError(null);
     try {
       const res = await api.post('/users/me/api-key');
+      setCopied(false);
       setNewApiKey(res.data.apiKey);
       setHasApiKey(true);
+      setShowKeyConfirm(false);
+      setShowRevokeConfirm(false);
+      if (shouldConfirmKey) {
+        const response = await api.get<OwnedAgent[]>('/agents').catch(() => null);
+        if (Array.isArray(response?.data)) setAgents(response.data);
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || t('profile.generateFailed'));
     } finally {
       setKeyLoading(false);
+    }
+  };
+
+  const requestKey = () => {
+    if (shouldConfirmKey) {
+      setError(null);
+      setShowKeyConfirm(true);
+    } else {
+      void handleGenerateKey();
     }
   };
 
@@ -131,12 +152,12 @@ export const Profile: React.FC = () => {
         ) : null}
       </div>
 
-      {error && (
+      {error && !showKeyConfirm ? (
         <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-md text-sm flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)}><X size={16} /></button>
         </div>
-      )}
+      ) : null}
       {success && (
         <div className="mb-4 p-3 bg-green-50 text-green-600 rounded-md text-sm">
           {t('profile.updated')}
@@ -204,7 +225,7 @@ export const Profile: React.FC = () => {
                   <p className="font-medium truncate">{agent.name}</p>
                   <p className="text-xs text-gray-500 truncate">{agent.description || t('common.noDescription')}</p>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${agent.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>{agent.status}</span>
+                <AgentStatusBadge agent={agent} />
               </Link>
             ))}
           </div>
@@ -234,6 +255,7 @@ export const Profile: React.FC = () => {
                   {newApiKey}
                 </code>
                 <button
+                  ref={copyKeyRef}
                   onClick={handleCopy}
                   className="p-2 bg-white border rounded hover:bg-gray-50 flex-shrink-0"
                   title={t('profile.copy')}
@@ -258,7 +280,8 @@ export const Profile: React.FC = () => {
                   {t('profile.tokenActive')}
                 </span>
                 <button
-                  onClick={handleGenerateKey}
+                  type="button"
+                  onClick={requestKey}
                   disabled={keyLoading}
                   className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm disabled:opacity-50"
                 >
@@ -297,7 +320,8 @@ export const Profile: React.FC = () => {
               </>
             ) : (
               <button
-                onClick={handleGenerateKey}
+                type="button"
+                onClick={requestKey}
                 disabled={keyLoading}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
               >
@@ -308,6 +332,44 @@ export const Profile: React.FC = () => {
           </div>
         )}
       </div>
+
+      {showKeyConfirm ? (
+        <ModalDialog
+          labelledBy="generate-api-key-title"
+          closeDisabled={keyLoading}
+          onRequestClose={() => setShowKeyConfirm(false)}
+          fallbackFocusRef={copyKeyRef}
+          className="w-full max-w-md rounded-[14px] border bg-white p-6 shadow-xl"
+        >
+          <h2 id="generate-api-key-title" className="text-lg font-semibold">
+            {t(hasApiKey ? 'profile.regenerateTitle' : 'profile.generate')}
+          </h2>
+          <p id="generate-api-key-warning" className="mt-3 text-sm text-gray-600">
+            {t(hasApiKey ? 'profile.regenerateWarning' : 'profile.generateWarning')}
+          </p>
+          {error ? <p role="alert" className="mt-3 text-sm text-red-600">{error}</p> : null}
+          <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              data-modal-autofocus
+              disabled={keyLoading}
+              onClick={() => setShowKeyConfirm(false)}
+              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              aria-describedby="generate-api-key-warning"
+              disabled={keyLoading}
+              onClick={handleGenerateKey}
+              className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {t(keyLoading ? 'profile.working' : hasApiKey ? 'profile.yesRegenerate' : 'profile.yesGenerate')}
+            </button>
+          </div>
+        </ModalDialog>
+      ) : null}
 
       <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
         <div className="flex items-center gap-2 mb-1">

@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import { AgentAccessRoleSchema, agentRoleAllowsScope } from '@neomei/agentwiki-sync-protocol';
+import { agentRoleAllowsScope } from '@neomei/agentwiki-sync-protocol';
+import { capAgentRole } from '../core/authorization/agent-owner-role';
 import { PrismaService } from '../database/prisma.service';
 import { CollaborationEventsService } from './collaboration-events.service';
 import { canonicalRequestHash, RunEventStore } from './run-event.store';
@@ -204,7 +205,12 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
       where: { agentId_spaceId: { agentId, spaceId } },
       include: {
         agent: { select: {
-          status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } },
+          status: true, revokedAt: true,
+          owner: { select: {
+            deletedAt: true,
+            lockedAt: true,
+            spaces: { where: { spaceId }, select: { role: true } },
+          } },
           credentials: {
             where: {
               revokedAt: null,
@@ -217,16 +223,17 @@ export class RecoveryWorker implements OnModuleInit, OnModuleDestroy {
         space: { select: { deletedAt: true } },
       },
     });
+    if (!grant) return false;
+    const role = capAgentRole(grant.role, grant.agent.owner.spaces[0]?.role);
     return Boolean(
-      grant
+      role
       && grant.agent.status === 'active'
       && !grant.agent.revokedAt
       && !grant.agent.owner.deletedAt
       && !grant.agent.owner.lockedAt
       && !grant.space.deletedAt
       && grant.agent.credentials?.some((credential) => !credential.revokedAt && (!credential.expiresAt || credential.expiresAt > now))
-      && AgentAccessRoleSchema.safeParse(grant.role).success
-      && agentRoleAllowsScope(grant.role, 'collaboration:execute'),
+      && agentRoleAllowsScope(role, 'collaboration:execute'),
     );
   }
 

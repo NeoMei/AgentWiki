@@ -16,6 +16,7 @@ import { tmpdir } from 'os';
 import { extname, posix, resolve } from 'path';
 import { promisify } from 'util';
 import { PrismaService } from '../database/prisma.service';
+import { capAgentRole } from '../core/authorization/agent-owner-role';
 import { AuthorizationService, Principal } from '../core/authorization/authorization.service';
 import { CreateSourceDto, UpdateSourceDto } from '../core/dto/source.dto';
 import { ReviewService } from '../review/review.service';
@@ -1179,7 +1180,15 @@ export class SourceService {
         db.agentGrant.findUnique({
           where: { agentId_spaceId: { agentId: run.requestedByAgentId, spaceId: run.spaceId } },
           include: {
-            agent: { select: { status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } } } },
+            agent: { select: {
+              status: true,
+              revokedAt: true,
+              owner: { select: {
+                deletedAt: true,
+                lockedAt: true,
+                spaces: { where: { spaceId: run.spaceId }, select: { role: true } },
+              } },
+            } },
             space: { select: { deletedAt: true } },
           },
         }),
@@ -1195,12 +1204,13 @@ export class SourceService {
             })
           : Promise.resolve(null),
       ]);
-      if (!grant || agentRoleSpaceCapability(grant.role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
+      const role = grant && capAgentRole(grant.role, grant.agent.owner.spaces[0]?.role);
+      if (!grant || !role || agentRoleSpaceCapability(role) !== 'editor' || grant.agent.status !== 'active' || grant.agent.revokedAt ||
         grant.agent.owner.deletedAt || grant.agent.owner.lockedAt || grant.space.deletedAt || !credential ||
-        !agentRoleAllowsScope(grant.role, 'runs:write')) {
+        !agentRoleAllowsScope(role, 'runs:write')) {
         throw new Error('Run requester is no longer authorized');
       }
-      return scopesForAgentAccessRole(grant.role);
+      return scopesForAgentAccessRole(role);
     }
     this.assertHumanRunCredentialKind(run);
     const requester = run.requestedByUserId ? await db.user.findUnique({

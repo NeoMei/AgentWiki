@@ -52,7 +52,9 @@ describe('Agent identity credential migration', () => {
     try {
       await db.user.create({ data: { id: userId, email: `${suffix}@identity.test` } });
       await db.agent.create({ data: { id: agentId, ownerId: userId, name: 'identity test' } });
-      for (const id of spaces) await db.space.create({ data: { id, slug: id, name: id } });
+      for (const id of spaces) {
+        await db.space.create({ data: { id, slug: id, name: id, members: { create: { userId, role: 'owner' } } } });
+      }
       const grantA = await db.agentGrant.create({ data: { agentId, spaceId: spaces[0], role: 'reader' } });
       const credential = await db.agentCredential.create({ data: { agentId, name: 'original', prefix: 'agk_identity', keyHash: createHash('sha256').update(rawKey).digest('hex'), legacyAuthorizationId: grantA.id } });
       const principal = (await auth.validateApiKey(rawKey))!;

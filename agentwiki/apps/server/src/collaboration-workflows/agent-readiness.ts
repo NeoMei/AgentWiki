@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { agentRoleAllowsScope } from '@neomei/agentwiki-sync-protocol';
+import { capAgentRole } from '../core/authorization/agent-owner-role';
 import { BusinessException } from '../core/filters/business-error';
 
 export async function assertCollaborationAgentsReady(
@@ -38,7 +39,13 @@ export async function inspectCollaborationAgentReadiness(
   const grants = await tx.agentGrant.findMany({
     where: { spaceId, agentId: { in: uniqueIds } },
     include: {
-      agent: { select: { id: true, status: true, revokedAt: true, owner: { select: { deletedAt: true, lockedAt: true } },
+      agent: { select: {
+        id: true, status: true, revokedAt: true,
+        owner: { select: {
+          deletedAt: true,
+          lockedAt: true,
+          spaces: { where: { spaceId }, select: { role: true } },
+        } },
         credentials: {
           where: { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
           select: { id: true },
@@ -61,7 +68,8 @@ export async function inspectCollaborationAgentReadiness(
       issues.push({ code: 'COLLABORATION_AGENT_INACTIVE', agentId });
       continue;
     }
-    if (!agentRoleAllowsScope(grant.role, 'collaboration:execute')
+    const role = capAgentRole(grant.role, owner.spaces[0]?.role);
+    if (!role || !agentRoleAllowsScope(role, 'collaboration:execute')
       || (requireCredential && grant.agent.credentials.length === 0)) {
       issues.push({ code: 'COLLABORATION_AGENT_CANNOT_EXECUTE', agentId });
     }

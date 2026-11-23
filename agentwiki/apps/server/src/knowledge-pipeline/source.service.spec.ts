@@ -316,7 +316,7 @@ describe('SourceService safety and idempotency', () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         role: 'editor',
-        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null } },
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, spaces: [{ role: 'editor' }] } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -328,11 +328,11 @@ describe('SourceService safety and idempotency', () => {
     })).rejects.toThrow('Run requester is no longer authorized');
   });
 
-  it('returns scopes derived solely from the Credential-bound Grant role', async () => {
+  it('returns scopes derived from the live Grant and owner membership', async () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1', role: 'editor',
-        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null } },
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, spaces: [{ role: 'editor' }] } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
@@ -347,13 +347,19 @@ describe('SourceService safety and idempotency', () => {
     })).resolves.toEqual(scopesForAgentAccessRole('editor'));
   });
 
-  it.each(['editor', 'publisher'] as const)(
-    'derives queued-run scopes from the live %s Grant',
-    async (grantRole) => {
+  it.each([
+    ['editor', 'owner', 'editor'],
+    ['publisher', 'admin', 'publisher'],
+    ['publisher', 'editor', 'editor'],
+  ] as const)(
+    'derives queued-run scopes from a %s Grant and %s owner role',
+    async (grantRole, ownerRole, effectiveRole) => {
       const authorizationPrisma = {
         agentGrant: { findUnique: jest.fn().mockResolvedValue({
           id: 'grant-1', role: grantRole,
-          agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+          agent: { status: 'active', revokedAt: null, owner: {
+            deletedAt: null, lockedAt: null, spaces: [{ role: ownerRole }],
+          } },
           space: { deletedAt: null },
         }) },
         agentCredential: { findFirst: jest.fn().mockResolvedValue({
@@ -365,7 +371,7 @@ describe('SourceService safety and idempotency', () => {
       await expect((authorizationService as any).assertRequesterStillAuthorized({
         requestedByAgentId: 'agent-1', spaceId: 'space-1',
         requestedCredentialId: 'credential-1', requestedCredentialType: 'agent',
-      })).resolves.toEqual(scopesForAgentAccessRole(grantRole));
+      })).resolves.toEqual(scopesForAgentAccessRole(effectiveRole));
     },
   );
 
@@ -390,6 +396,7 @@ describe('SourceService safety and idempotency', () => {
         authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
       }) },
       space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null, approvalPolicy: 'always-review' }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'editor' }) },
     } as any;
     const lockedTx = Object.assign(authorizationPrisma, { contentTreeRevision: 0n });
     const revisionWriter = {
@@ -417,6 +424,7 @@ describe('SourceService safety and idempotency', () => {
       'lock:AgentCredential',
       'space-advisory',
       'lock:Space',
+      'lock:SpaceMember',
     ]);
   });
 
@@ -424,7 +432,7 @@ describe('SourceService safety and idempotency', () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1', role: 'publisher',
-        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null, spaces: [{ role: 'owner' }] } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
@@ -443,7 +451,7 @@ describe('SourceService safety and idempotency', () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1', role: 'publisher',
-        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null, spaces: [{ role: 'owner' }] } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
@@ -462,7 +470,7 @@ describe('SourceService safety and idempotency', () => {
     const authorizationPrisma = {
       agentGrant: { findUnique: jest.fn().mockResolvedValue({
         id: 'grant-1', role: 'reader',
-        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null } },
+        agent: { status: 'active', revokedAt: null, owner: { deletedAt: null, lockedAt: null, spaces: [{ role: 'owner' }] } },
         space: { deletedAt: null },
       }) },
       agentCredential: { findFirst: jest.fn().mockResolvedValue({
@@ -722,11 +730,10 @@ describe('SourceService pipeline lifecycle', () => {
     expect(prisma.artifact.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ type: 'index' }) }));
   });
 
-  it.each([
-    ['publisher', 'scoped-auto-publish', 'scoped-auto-publish'],
-    ['editor', 'no-review', 'always-review'],
-  ])('passes the current %s Agent and Credential into background auto-publish revalidation under %s', async (role, approvalPolicy, approvalMode) => {
-    const { service, prisma, review, run } = makeHarness();
+  const makeAgentHarness = (role = 'publisher', approvalPolicy = 'scoped-auto-publish', approvalMode = 'scoped-auto-publish') => {
+    const harness = makeHarness();
+    const { prisma, run } = harness;
+    const owner = { deletedAt: null, lockedAt: null, spaces: [{ role: 'owner' }] };
     run.requestedByUserId = null as any;
     run.requestedByAgentId = 'agent-1' as any;
     (run as any).requestedCredentialId = 'credential-1';
@@ -744,13 +751,22 @@ describe('SourceService pipeline lifecycle', () => {
       id: 'grant-1', role,
       agent: {
         status: 'active', revokedAt: null,
-        owner: { deletedAt: null, lockedAt: null },
+        owner,
       },
       space: { deletedAt: null },
     });
+    prisma.spaceMember.findUnique.mockResolvedValue({ role: 'owner' });
     prisma.agentCredential = { findFirst: jest.fn().mockResolvedValue({
       authorizationId: 'grant-1', revokedAt: null, expiresAt: null,
     }) };
+    return { ...harness, owner };
+  };
+
+  it.each([
+    ['publisher', 'scoped-auto-publish', 'scoped-auto-publish'],
+    ['editor', 'no-review', 'always-review'],
+  ])('passes the current %s Agent and Credential into background auto-publish revalidation under %s', async (role, approvalPolicy, approvalMode) => {
+    const { service, prisma, review } = makeAgentHarness(role, approvalPolicy, approvalMode);
     jest.spyOn(service as any, 'fetch').mockResolvedValue({ content: 'content' });
 
     await service.processRun('run-1');
@@ -763,6 +779,25 @@ describe('SourceService pipeline lifecycle', () => {
       where: expect.objectContaining({ id: 'credential-1', agentId: 'agent-1' }),
       select: { id: true },
     }));
+  });
+
+  it.each(['viewer', null])('fails a queued publisher run when its owner membership becomes %s during fetch', async (role) => {
+    const { service, prisma, review, owner } = makeAgentHarness();
+    const fetch = jest.spyOn(service as any, 'fetch').mockImplementationOnce(async () => {
+      owner.spaces = role ? [{ role }] : [];
+      prisma.spaceMember.findUnique.mockResolvedValue(role ? { role } : null);
+      return { content: 'content' };
+    });
+
+    await expect(service.processRun('run-1')).rejects.toThrow('Run requester is no longer authorized');
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(prisma.ingestRun.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'failed', error: 'Run requester is no longer authorized' }),
+    }));
+    expect(prisma.sourceVersion.create).not.toHaveBeenCalled();
+    expect(prisma.changeSet.create).not.toHaveBeenCalled();
+    expect(review.publish).not.toHaveBeenCalled();
   });
 
   it('keeps a human personal-key import pending review in a no-review Space', async () => {

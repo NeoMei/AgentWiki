@@ -68,6 +68,8 @@ describe('OnboardDeviceService', () => {
   beforeEach(async () => {
     jest.useFakeTimers().setSystemTime(NOW);
     prisma = {
+      $queryRaw: jest.fn(),
+      $transaction: jest.fn(async (operation) => operation(prisma)),
       onboardingDeviceSession: {
         create: jest.fn().mockResolvedValue(session()),
         findUnique: jest.fn(),
@@ -549,6 +551,7 @@ describe('OnboardingTokenGuard', () => {
     });
     expect(JSON.stringify(prisma.onboardingDeviceSession.findUnique.mock.calls)).not.toContain(rawToken);
     expect(probe.request.onboarding).toEqual({
+      tokenHash: createHash('sha256').update(rawToken).digest('hex'),
       sessionId: 'session-1', userId: 'user-1', packageVersion: '0.9.1',
       purpose: 'full-onboarding', requestedCapabilities: CAPABILITIES,
     });

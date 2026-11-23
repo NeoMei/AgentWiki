@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateUserDto, UpdateUserDto } from '../dto/user.dto';
 import { recordUniHubSourceLifecycle } from '../auth/unihub/unihub-lifecycle.service';
+import { lockConnectionOwner, PERSONAL_KEY_ROTATION_ID_PREFIX } from './personal-key-rotation';
 
 export interface PaginatedResult<T> {
   data: T[];
@@ -136,35 +137,67 @@ export class UserService {
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
-  async generateApiKey(userId: string): Promise<string> {
-    const rawKey = 'awk_' + randomBytes(32).toString('base64url');
-    const keyHash = createHash('sha256').update(rawKey).digest('hex');
-    await this.prisma.apiKeyCredential.create({
-      data: {
-        userId,
-        prefix: rawKey.slice(0, 12),
-        keyHash,
-        scopes: ['*'],
-      },
-    });
-    return rawKey;
-  }
-
   async regenerateApiKey(userId: string): Promise<string> {
-    await this.findOne(userId);
-    await this.prisma.apiKeyCredential.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockActiveUser(tx, userId);
+      const historicalKey = await tx.apiKeyCredential.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      if (historicalKey) {
+        await tx.$queryRaw(Prisma.sql`
+          SELECT "id" FROM "Agent" WHERE "ownerId" = ${userId}
+          ORDER BY "id" FOR UPDATE
+        `);
+        const revokedAt = new Date();
+        await tx.apiKeyCredential.updateMany({
+          where: { userId, revokedAt: null }, data: { revokedAt },
+        });
+        await tx.agentCredential.updateMany({
+          where: { agent: { ownerId: userId }, revokedAt: null }, data: { revokedAt },
+        });
+        // Keep device and bootstrap records so fresh approval can recover the
+        // original resources. Expired sessions cannot issue or replay a code.
+        await tx.onboardingDeviceSession.updateMany({
+          where: {
+            authorizedUserId: userId,
+            purpose: { in: ['agent-connect', 'full-onboarding'] },
+            status: { in: ['approved', 'authorized'] },
+          },
+          data: { status: 'expired' },
+        });
+      }
+
+      const rawKey = 'awk_' + randomBytes(32).toString('base64url');
+      await tx.apiKeyCredential.create({
+        data: {
+          ...(historicalKey ? { id: PERSONAL_KEY_ROTATION_ID_PREFIX + randomUUID() } : {}),
+          userId,
+          prefix: rawKey.slice(0, 12),
+          keyHash: createHash('sha256').update(rawKey).digest('hex'),
+          scopes: ['*'],
+        },
+      });
+      return rawKey;
     });
-    return this.generateApiKey(userId);
   }
 
   async revokeApiKey(userId: string): Promise<void> {
-    await this.findOne(userId);
-    await this.prisma.apiKeyCredential.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockActiveUser(tx, userId);
+      await tx.apiKeyCredential.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     });
   }
 
+  private async lockActiveUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    await lockConnectionOwner(tx, userId);
+    const user = await tx.user.findUnique({
+      where: { id: userId, type: 'human', deletedAt: null, lockedAt: null },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+  }
 }
