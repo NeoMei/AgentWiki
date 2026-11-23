@@ -1415,6 +1415,19 @@ describe('MarkdownWorkspace live-preview (CodeMirror)', () => {
     expect(view.state.doc.toString()).toBe('plain unchanged');
   });
 
+  it('keeps the article text when the clipboard also contains an image', () => {
+    const onUploadImages = vi.fn().mockResolvedValue(['assets/snapshot.png']);
+    const { container } = renderWYS({ initial: '', onUploadImages });
+    const view = currentEditorView(container);
+    const image = new File(['png'], 'snapshot.png', { type: 'image/png' });
+    const article = '# Article\n\nFirst paragraph.\n\nSecond paragraph.';
+
+    dispatchPaste(view.contentDOM, [textItem(), fileItem(image)], article);
+
+    expect(view.state.doc.toString()).toBe(article);
+    expect(onUploadImages).not.toHaveBeenCalled();
+  });
+
   it('inserts a dropped image at the coordinate-derived position instead of the cursor', async () => {
     const onUploadImages = vi.fn().mockResolvedValue(['assets/drop.png']);
     const onUploadError = vi.fn();

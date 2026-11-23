@@ -1,4 +1,5 @@
 export const SPACE_NAME_MAX_LENGTH = 32;
+export const PAGE_CONTENT_MAX_LENGTH = 200_000;
 
 export interface User {
   id: string;

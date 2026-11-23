@@ -15,7 +15,8 @@ import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDi
 import type { CompositeTemplateCapabilities } from '../page-templates/compositeTemplateTypes';
 import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
-import { truncateValidatorLength } from '../page-templates/validatorLength';
+import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
+import { truncateValidatorLength, validatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { AssistRequest } from './AgentAssistPanel';
 const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
@@ -101,6 +102,8 @@ interface AttachmentRuntimeContext {
 }
 
 const PAGE_TITLE_LIMIT = 200;
+const exceedsPageContentLimit = (value: string) => value.length > PAGE_CONTENT_MAX_LENGTH
+  && validatorLength(value) > PAGE_CONTENT_MAX_LENGTH;
 
 const pageRevision = (page: Page) => JSON.stringify([
   page.updatedAt,
@@ -899,7 +902,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
     if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = setTimeout(() => {
-      if (pageRef.current?.capabilities?.canEdit !== false && socketRef.current && socketRef.current.connected) {
+      if (pageRef.current?.capabilities?.canEdit !== false && socketRef.current?.connected
+        && !exceedsPageContentLimit(newContent)) {
         socketRef.current.emit('contentChange', {
           pageId: id,
           content: newContent,
@@ -1032,6 +1036,13 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (!id || !baseline?.updatedAt || baseline.capabilities?.canEdit === false || remoteUpdate) return;
     if (!title.trim()) {
       showStatus({ kind: 'error', text: t('editor.titleRequired') }, 'save');
+      return;
+    }
+    if (exceedsPageContentLimit(content)) {
+      showStatus({
+        kind: 'error',
+        text: t('editor.contentTooLong', { max: PAGE_CONTENT_MAX_LENGTH.toLocaleString(language) }),
+      }, 'save', 5000);
       return;
     }
     const requestedId = id;

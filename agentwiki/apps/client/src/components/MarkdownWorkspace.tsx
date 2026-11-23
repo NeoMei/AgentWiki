@@ -1047,10 +1047,10 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
       event: ClipboardEvent | DragEvent,
       selection: EditorSelection | null,
     ) => {
-      const files = imageFilesFromTransfer(
-        'clipboardData' in event ? event.clipboardData : event.dataTransfer,
-      );
+      const transfer = 'clipboardData' in event ? event.clipboardData : event.dataTransfer;
+      const files = imageFilesFromTransfer(transfer);
       if (files.length === 0) return false;
+      if ('clipboardData' in event && transfer?.getData('text/plain').trim()) return false;
       event.preventDefault();
       if (!selection) {
         onUploadError?.(new Error('Image drop position is not available'));

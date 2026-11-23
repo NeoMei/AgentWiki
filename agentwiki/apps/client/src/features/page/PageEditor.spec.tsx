@@ -1887,6 +1887,20 @@ describe('PageEditor remote update safety', () => {
     expect(contentTreeMocks.getContentTreeRevision).toHaveBeenCalledWith('space-1', expect.any(AbortSignal));
   });
 
+  it('keeps an oversized body in the editor and explains the page limit before saving', async () => {
+    queuePages({ data: page() });
+    renderEditor();
+    const save = await screen.findByRole('button', { name: 'Save' });
+    const longBody = ('正文'.repeat(50) + '\n').repeat(2_000);
+
+    editContent(longBody);
+    fireEvent.click(save);
+
+    expect(await screen.findByText(/exceeds the 200,000 character limit/u)).toBeVisible();
+    expect(contentEditorValue()).toBe(longBody);
+    expect(pagePatchCalls()).toHaveLength(0);
+  });
+
   it('does not PATCH after navigating away while the structural tree head is pending', async () => {
     const head = deferred<string>();
     contentTreeMocks.getContentTreeRevision.mockReturnValue(head.promise);

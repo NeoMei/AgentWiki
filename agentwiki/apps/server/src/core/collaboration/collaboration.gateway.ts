@@ -1,6 +1,8 @@
 import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
 import { OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
+import { maxLength } from 'class-validator';
 import { JwtService } from '@nestjs/jwt';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
@@ -18,7 +20,9 @@ const SOCKET_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http:
   .map((origin) => origin.trim())
   .filter(Boolean);
 const MAX_PAGE_ROOMS_PER_SOCKET = 10;
-const MAX_PAGE_CONTENT_LENGTH = 200_000;
+// A character can take six bytes when escaped in JSON and carry a three-byte
+// variation selector. Reserve extra bytes for the Socket.IO event envelope.
+const MAX_PAGE_EVENT_BYTES = PAGE_CONTENT_MAX_LENGTH * 9 + 1024;
 const MAX_SOCKETS_PER_USER = 20;
 const ROOM_AUTHORIZATION_LEASE_MS = 1_000;
 
@@ -39,7 +43,7 @@ interface CursorPosition {
     origin: SOCKET_ORIGINS,
     credentials: true,
   },
-  maxHttpBufferSize: 256 * 1024,
+  maxHttpBufferSize: MAX_PAGE_EVENT_BYTES,
   namespace: '/collaboration',
 })
 export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
@@ -339,7 +343,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
   ) {
     if (
       !this.validPageId(body?.pageId) || !client.rooms.has(body.pageId) ||
-      typeof body.content !== 'string' || body.content.length > MAX_PAGE_CONTENT_LENGTH ||
+      typeof body.content !== 'string' ||
       !Number.isSafeInteger(body.version) || body.version < 0
     ) return;
     const cachedUserId = (client.data.user as Principal | undefined)?.userId;
@@ -347,6 +351,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.emit('collaborationError', { code: 'EVENT_RATE_LIMITED' });
       return;
     }
+    if (body.content.length > PAGE_CONTENT_MAX_LENGTH && !maxLength(body.content, PAGE_CONTENT_MAX_LENGTH)) return;
     const pages = this.pageContentOrder.get(client) ?? new Map();
     this.pageContentOrder.set(client, pages);
     const order = pages.get(body.pageId) ?? { received: 0, sent: 0 };

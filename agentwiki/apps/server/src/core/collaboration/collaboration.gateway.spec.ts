@@ -1,6 +1,7 @@
 import { CollaborationGateway } from './collaboration.gateway';
 import { TASKBOARD_CHANNEL } from '../../project-taskboard/taskboard-core';
 import { createHash } from 'crypto';
+import { GATEWAY_OPTIONS } from '@nestjs/websockets/constants';
 
 describe('CollaborationGateway authentication', () => {
   const jwt = { verify: jest.fn().mockReturnValue({ sub: 'user-1' }) } as any;
@@ -363,6 +364,31 @@ describe('CollaborationGateway authentication', () => {
       version: 42,
       userId: 'socket-a',
     });
+  });
+
+  it('keeps the transport open for a valid page with escaped text and variation selectors', () => {
+    const content = '\u0001\uFE0F'.repeat(200_000);
+    const payload = '42/collaboration,' + JSON.stringify(['contentChange', { pageId: 'page-1', content, version: 42 }]);
+    const options = Reflect.getMetadata(GATEWAY_OPTIONS, CollaborationGateway);
+
+    expect(options.maxHttpBufferSize).toBeGreaterThanOrEqual(Buffer.byteLength(payload));
+  });
+
+  it('applies the page character limit independently of UTF-16 length', async () => {
+    const broadcast = jest.fn();
+    const client = {
+      id: 'socket-long-page',
+      data: { user: { userId: 'user-1', name: 'Alice' } },
+      to: jest.fn().mockReturnValue({ emit: broadcast }),
+      rooms: new Set(['page-1']),
+    } as any;
+    const content = '😀'.repeat(200_000);
+
+    await gateway.handleContentChange(client, { pageId: 'page-1', content, version: 42 });
+    await gateway.handleContentChange(client, { pageId: 'page-1', content: content + 'a', version: 43 });
+
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    expect(broadcast).toHaveBeenCalledWith('contentUpdated', { content, version: 42, userId: client.id });
   });
 
   it('denies unauthorized room joins without allocating room state', async () => {
