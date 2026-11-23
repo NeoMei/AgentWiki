@@ -1,4 +1,5 @@
 import { Transform, Type } from 'class-transformer';
+import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
 import {
   IsIn,
   IsInt,
@@ -21,6 +22,17 @@ export class AttachmentListQueryDto {
   @IsOptional() @IsIn(['active', 'archived', 'all']) status: AttachmentListStatus = 'active';
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(2_147_483_647) skip = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) take = 100;
+}
+
+export class ImportPageImagesDto {
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(100)
+  sourcePageId!: string;
+
+  @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(100)
+  targetPageId!: string;
+
+  @PreserveRawInput() @IsOptional() @IsString() @MaxLength(PAGE_CONTENT_MAX_LENGTH)
+  content?: string;
 }
 
 export class AttachmentStateDto {

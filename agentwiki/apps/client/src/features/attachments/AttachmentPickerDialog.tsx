@@ -21,11 +21,24 @@ import type {
 const PAGE_SIZE = 20;
 const ACCEPTED_IMAGES = '.png,.jpg,.jpeg,.webp,.gif';
 
+function sourcePageIdFromLink(value: string): string | undefined {
+  try {
+    const origin = window.location.origin;
+    const url = new URL(value.trim(), origin);
+    if (url.origin === origin && !url.username && !url.password) {
+      return /^\/pages\/([\w-]{1,100})(?:\/edit)?\/?$/u.exec(url.pathname)?.[1];
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 export interface AttachmentPickerDialogProps {
   spaceId: string;
   canManage?: boolean;
   onClose: () => void;
   onInsert: (canonicalPath: string) => void;
+  onImportFromPage?: (sourcePageId: string) => Promise<{ imported: number; remaining: number }>;
   returnFocusTo?: HTMLElement | null;
 }
 
@@ -34,6 +47,7 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   canManage = true,
   onClose,
   onInsert,
+  onImportFromPage,
   returnFocusTo,
 }) => {
   const { t } = useLanguage();
@@ -48,6 +62,9 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   const [announcement, setAnnouncement] = useState('');
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState('');
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
   const [renameItem, setRenameItem] = useState<AttachmentSummary | null>(null);
   const [renameName, setRenameName] = useState('');
@@ -302,7 +319,36 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
     onClose();
   };
 
-  const criteriaLocked = uploading || busyIds.size > 0;
+  const handleImport = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!onImportFromPage || operationRef.current) return;
+    setError(null);
+    setImportResult('');
+    const sourcePageId = sourcePageIdFromLink(sourceUrl);
+    if (!sourcePageId) {
+      setError(t('attachment.importPageLinkInvalid'));
+      return;
+    }
+    operationRef.current = true;
+    setImporting(true);
+    try {
+      const { imported, remaining } = await onImportFromPage(sourcePageId);
+      if (!aliveRef.current) return;
+      setImportResult(t(remaining > 0 ? 'attachment.importPartial' : 'attachment.importComplete', { imported, remaining }));
+      if (imported > 0) await load(0, false);
+    } catch (caught) {
+      if (!aliveRef.current) return;
+      const code = apiErrorCode(caught);
+      setError(code === 'ATTACHMENT_NAME_CONFLICT' ? t('attachment.importNameConflict')
+        : code === 'ATTACHMENT_MISSING' ? t('attachment.importImageUnavailable')
+          : translatedError(caught, 'attachment.importFailed'));
+    } finally {
+      operationRef.current = false;
+      if (aliveRef.current) setImporting(false);
+    }
+  };
+
+  const criteriaLocked = uploading || importing || busyIds.size > 0;
   const insertExisting = (item: AttachmentSummary) => {
     if (!operationRef.current && item.referenceable && item.canonicalPath !== null) {
       onInsert(item.canonicalPath);
@@ -339,6 +385,23 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
       {t('attachment.upload')}
       <input type="file" accept={ACCEPTED_IMAGES} aria-label={t('attachment.upload')} disabled={criteriaLocked} onChange={(event) => void handleUpload(event)} className="sr-only" />
     </label>
+
+    {onImportFromPage ? <details className="mt-4 rounded-lg border px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium">{t('attachment.importFromPage')}</summary>
+      <form onSubmit={handleImport} className="mt-3 space-y-2">
+        <p className="text-sm text-gray-600">{t('attachment.importDescription')}</p>
+        <label className="block text-sm font-medium">
+          {t('attachment.importPageLink')}
+          <input type="text" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} disabled={criteriaLocked}
+            className="mt-1 h-10 w-full rounded-lg border px-3 disabled:opacity-50" />
+        </label>
+        <button type="submit" disabled={criteriaLocked || !sourceUrl.trim()}
+          className="min-h-9 rounded-lg border px-3 text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+          {t(importing ? 'common.loading' : 'attachment.importMissing')}
+        </button>
+        {importResult ? <p role="status" className="text-sm text-gray-700">{importResult}</p> : null}
+      </form>
+    </details> : null}
 
     {uploadProgress !== null ? <p aria-live="polite" role="status" className="mt-2 text-sm text-blue-700">{t('attachment.uploading', { progress: uploadProgress })}</p> : null}
     <p aria-live="polite" className="sr-only">{announcement}</p>

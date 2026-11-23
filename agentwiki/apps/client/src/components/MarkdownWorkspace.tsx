@@ -51,6 +51,7 @@ interface MarkdownWorkspaceProps extends NoteHighlightProps {
   onModeChange?: (mode: MarkdownMode) => void;
   pageId?: string;
   spaceId?: string;
+  attachmentRevision?: number;
   pages?: PageLinkTarget[];
   onUploadImages?: (files: File[]) => Promise<string[]>;
   onUploadError?: (error: unknown) => void;
@@ -526,6 +527,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   onChange,
   pageId,
   spaceId,
+  attachmentRevision = 0,
   pages = EMPTY_PAGES,
   onUploadImages,
   onUploadError,
@@ -798,7 +800,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
   editorReferencesRef.current = editorReferences;
   const resolutionScopeIdentity = JSON.stringify([spaceId ?? '', pageId ?? '']);
   const referenceSetIdentity = JSON.stringify(editorReferences.map((reference) => reference.canonicalKey));
-  const resolutionIdentity = `${resolutionScopeIdentity}:${referenceSetIdentity}`;
+  const resolutionIdentity = `${resolutionScopeIdentity}:${referenceSetIdentity}:${attachmentRevision}`;
   const previousResolutionScopeRef = useRef<string | null>(null);
   const [resourceSnapshot, setResourceSnapshot] = useState<{
     identity: string;
@@ -1172,6 +1174,7 @@ export const MarkdownWorkspace = forwardRef<MarkdownWorkspaceHandle, MarkdownWor
             <div>
               {value ? (
                 <Markdown
+                  key={attachmentRevision}
                   mode="editor-preview"
                   selectionSourceVersion={selectionSourceVersion}
                   noteHighlights={noteHighlights}

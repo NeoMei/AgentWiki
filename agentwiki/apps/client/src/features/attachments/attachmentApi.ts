@@ -105,6 +105,19 @@ export async function listAttachments(
   };
 }
 
+export async function importPageImages(
+  spaceId: string,
+  sourcePageId: string,
+  targetPageId: string,
+  content: string,
+): Promise<{ imported: number; remaining: number }> {
+  const { data } = await api.post(`/spaces/${encoded(spaceId)}/attachments/import-page-images`, {
+    sourcePageId, targetPageId, content,
+  });
+  if (!isRecord(data)) throw invalidResponse();
+  return { imported: safeIntegerField(data, 'imported', 0), remaining: safeIntegerField(data, 'remaining', 0) };
+}
+
 export async function uploadAttachment(
   spaceId: string,
   file: File,

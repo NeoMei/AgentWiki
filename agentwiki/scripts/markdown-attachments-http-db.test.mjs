@@ -388,6 +388,69 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       assert.equal(editorUpload.displayName, screenshotName);
       assert.equal(editorUpload.canonicalPath, `assets/${screenshotName}`);
 
+      const copiedImageName = 'image (13).png';
+      const original = (await request(`/spaces/${namedSpace.id}/attachments`, {
+        method: 'POST', token: owner.token, form: multipart(PNG, copiedImageName, 'image/png'),
+      })).data;
+      const destination = (await request('/spaces', {
+        method: 'POST', token: owner.token, body: { name: 'Cross-space image regression' },
+      })).data;
+      await request(`/spaces/${destination.id}/members`, {
+        method: 'POST', token: owner.token, body: { email: viewer.email, role: 'viewer' },
+      });
+      const content = `![[assets/${copiedImageName}]]`;
+      const pageIn = async (spaceId, title, body) => {
+        const tree = (await request(`/spaces/${spaceId}/content-tree?take=1`, { token: owner.token })).data;
+        return (await request('/pages', {
+          method: 'POST', token: owner.token,
+          body: { spaceId, title, content: body, expectedTreeRevision: tree.treeRevision },
+        })).data;
+      };
+      const sourcePage = await pageIn(namedSpace.id, 'Source with image', content);
+      const targetPage = await pageIn(destination.id, 'Copied image reference', '');
+      const saveTarget = (expected) => request(`/pages/${targetPage.id}`, {
+        method: 'PATCH', token: owner.token, body: { content, expectedUpdatedAt: targetPage.updatedAt }, expected,
+      });
+      assert.equal((await saveTarget([409])).data.error.code, 'ATTACHMENT_MISSING');
+      const importImages = (token, expected) => request(`/spaces/${destination.id}/attachments/import-page-images`, {
+        method: 'POST', token, expected,
+        body: { sourcePageId: sourcePage.id, targetPageId: targetPage.id,
+          content: `${content}\n![[assets/${screenshotName}]]` },
+      });
+      await importImages(viewer.token, [403]);
+      await request(`/spaces/${destination.id}/members`, {
+        method: 'POST', token: owner.token, body: { email: outsider.email, role: 'editor' },
+      });
+      await importImages(outsider.token, [403]);
+      const imports = await Promise.all([importImages(owner.token, [201]), importImages(owner.token, [201])]);
+      assert.deepEqual(imports.map(({ data }) => data.imported).sort(), [0, 1]);
+      assert.ok(imports.every(({ data }) => data.remaining === 1));
+      const attachments = (await request(`/spaces/${destination.id}/attachments`, { token: viewer.token })).data;
+      assert.equal(attachments.total, 1);
+      assert.notEqual(attachments.items[0].id, original.id);
+      const copiedAttachmentPath = `/spaces/${destination.id}/attachments/${attachments.items[0].id}`;
+      const archivedCopy = (await request(`${copiedAttachmentPath}/archive`, {
+        method: 'POST', token: owner.token, body: { expectedUpdatedAt: attachments.items[0].updatedAt },
+      })).data;
+      assert.equal((await importImages(owner.token, [409])).data.code, 'ATTACHMENT_NAME_CONFLICT');
+      await request(`${copiedAttachmentPath}/restore`, {
+        method: 'POST', token: owner.token, body: { expectedUpdatedAt: archivedCopy.updatedAt },
+      });
+      const resolved = (await request(`/spaces/${destination.id}/markdown/resolve`, {
+        method: 'POST', token: viewer.token, body: {
+          sourcePageId: targetPage.id,
+          references: [{ key: 'image', kind: 'attachment', target: copiedImageName }],
+        },
+      })).data;
+      assert.equal(resolved[0].attachmentId, attachments.items[0].id);
+      await request(`/attachments/${original.id}/content`, { token: viewer.token, expected: [404] });
+      const copiedContent = await fetch(`${baseUrl}/attachments/${resolved[0].attachmentId}/content`, {
+        headers: { Authorization: `Bearer ${viewer.token}` }, signal: AbortSignal.timeout(10_000),
+      });
+      assert.equal(copiedContent.status, 200);
+      assert.deepEqual(Buffer.from(await copiedContent.arrayBuffer()), PNG);
+      assert.equal((await saveTarget([200])).data.content, content);
+
       const alpha = (await request(`/spaces/${space.id}/attachments`, {
         method: 'POST', token: admin.token,
         form: multipart(PNG, 'Alpha.png', 'image/png'),

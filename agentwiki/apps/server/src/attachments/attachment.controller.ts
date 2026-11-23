@@ -24,6 +24,7 @@ import {
   AttachmentRenameConfirmDto,
   AttachmentRenamePreviewDto,
   AttachmentStateDto,
+  ImportPageImagesDto,
 } from './attachment.dto';
 import { AttachmentService } from './attachment.service';
 
@@ -59,6 +60,16 @@ export class SpaceAttachmentController {
   ) {
     if (!file) throw new BadRequestException('Attachment file is required');
     return this.attachments.upload(spaceId, file, req.user as Principal);
+  }
+
+  @Post('import-page-images')
+  @UseGuards(HumanOnlyGuard)
+  importPageImages(
+    @Req() req: Request,
+    @Param('spaceId') spaceId: string,
+    @Body() body: ImportPageImagesDto,
+  ) {
+    return this.attachments.importPageImages(spaceId, body, req.user as Principal);
   }
 
   @Post(':attachmentId/archive')

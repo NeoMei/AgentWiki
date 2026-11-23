@@ -1,6 +1,7 @@
 import { sourceGenerationInvalidation } from '../core/page/source-generation';
 import { extname, posix } from 'node:path';
 import { createHash } from 'node:crypto';
+import type { Readable } from 'node:stream';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/client';
 import { canonicalBytes, FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
@@ -19,6 +20,7 @@ import {
   type AttachmentRenamePreviewDto,
   type AttachmentStateDto,
   type AttachmentSummary,
+  type ImportPageImagesDto,
 } from './attachment.dto';
 import {
   ATTACHMENT_STORAGE,
@@ -51,6 +53,14 @@ const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const WRITE_ROLES = ['owner', 'editor'] as const;
 const MAX_FILENAME_CODE_POINTS = 200;
 const MAX_FILENAME_UTF8_BYTES = 512;
+
+function referencedImageNameKeys(content: string, syncPath: string): Set<string> {
+  return new Set(parseImageReferences(content, syncPath).flatMap((reference) => (
+    reference.classification === 'managed_candidate' && reference.resolvedPath
+      ? [normalizeAttachmentName(reference.resolvedPath.slice('assets/'.length)).nameKey]
+      : []
+  )));
+}
 
 type AttachmentRow = Pick<
   SpaceAttachment,
@@ -311,6 +321,94 @@ export class AttachmentService {
     } finally {
       await this.storage.releaseTempReservation(reservation);
     }
+  }
+
+  async importPageImages(spaceId: string, body: ImportPageImagesDto, principal: Principal) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.authorization.lockLiveHumanPrincipal(tx, principal);
+      await this.authorization.lockLiveHumanPersonalCredential(tx, principal);
+      await this.authorization.assertLiveHumanCredential(tx, principal, ['pages:read', 'pages:write']);
+      await this.assertWritableHuman(tx, principal, spaceId, SPACE_ATTACHMENT_UPLOAD_ROLES);
+
+      const sourceLocation = await tx.page.findFirst({
+        where: { id: body.sourcePageId, deletedAt: null, format: 'markdown' },
+        select: { spaceId: true },
+      });
+      if (!sourceLocation) throw new BusinessException('SPACE_ACCESS_DENIED', 'Source page is unavailable');
+      const sourceSpaceId = sourceLocation.spaceId;
+      if (sourceSpaceId === spaceId) throw new BadRequestException('Choose a source page in another Space');
+      await this.authorization.assertLiveHumanSpaceAccess(
+        tx, principal, sourceSpaceId, [...READ_ROLES], { requireSpaceMembership: true },
+      );
+      for (const lockedSpaceId of [sourceSpaceId, spaceId].sort()) {
+        await this.revisionWriter.lockSpace(tx, lockedSpaceId);
+      }
+      await this.authorization.assertLiveHumanSpaceAccess(
+        tx, principal, sourceSpaceId, [...READ_ROLES], { requireSpaceMembership: true },
+      );
+      await this.assertWritableHuman(tx, principal, spaceId, SPACE_ATTACHMENT_UPLOAD_ROLES);
+
+      const pages = await tx.page.findMany({
+        where: { id: { in: [body.sourcePageId, body.targetPageId] }, deletedAt: null, format: 'markdown' },
+        select: { id: true, spaceId: true, content: true, syncPath: true },
+      });
+      const source = pages.find((page) => page.id === body.sourcePageId && page.spaceId === sourceSpaceId);
+      if (!source) throw new BusinessException('SPACE_ACCESS_DENIED', 'Source page is unavailable');
+      const target = pages.find((page) => page.id === body.targetPageId && page.spaceId === spaceId);
+      if (!target) throw new BusinessException('RESOURCE_NOT_FOUND', 'Destination page is unavailable');
+
+      const sourceNames = referencedImageNameKeys(source.content, source.syncPath);
+      const targetNames = referencedImageNameKeys(body.content ?? target.content, target.syncPath);
+      if (targetNames.size === 0) return { imported: 0, remaining: 0 };
+      const [originals, existing] = await Promise.all([
+        tx.spaceAttachment.findMany({ where: {
+          spaceId: sourceSpaceId, status: 'active', nameKey: { in: [...targetNames].filter((key) => sourceNames.has(key)) },
+        } }),
+        tx.spaceAttachment.findMany({ where: { spaceId, nameKey: { in: [...targetNames] } } }),
+      ]);
+      const existingByName = new Map(existing.map((item) => [item.nameKey, item]));
+      const resolvedNames = new Set(existing.filter((item) => item.status === 'active').map((item) => item.nameKey));
+      const additions = originals.filter((original) => {
+        const current = existingByName.get(original.nameKey);
+        if (!current) return true;
+        if (current.status !== 'active' || current.contentHash !== original.contentHash) {
+          throw new BusinessException('ATTACHMENT_NAME_CONFLICT', undefined, { name: original.displayName });
+        }
+        return false;
+      });
+      if (additions.length > 0) {
+        const active = await tx.spaceAttachment.aggregate({ where: { spaceId, status: 'active' }, _sum: { sizeBytes: true } });
+        const addedBytes = additions.reduce((total, item) => total + item.sizeBytes, 0n);
+        if ((active._sum.sizeBytes ?? 0n) + addedBytes > this.config.maxSpaceBytes) {
+          throw new BusinessException('RESOURCE_CONFLICT', 'Space attachment quota exceeded');
+        }
+
+        // An active source row keeps the shared blob reachable while both Space locks are held.
+        for (const original of additions) {
+          try {
+            const stream = await this.storage.open(original.storageKey) as Readable;
+            stream.destroy();
+          } catch (error) {
+            if (isNodeError(error, 'ENOENT')) throw new BusinessException('ATTACHMENT_MISSING', 'Source image content is unavailable');
+            throw error;
+          }
+          resolvedNames.add(original.nameKey);
+        }
+        await tx.spaceAttachment.createMany({ data: additions.map((original) => ({
+          spaceId,
+          nameKey: original.nameKey,
+          displayName: original.displayName,
+          contentHash: original.contentHash,
+          storageKey: original.storageKey,
+          mimeType: original.mimeType,
+          sizeBytes: original.sizeBytes,
+          width: original.width,
+          height: original.height,
+          uploadedByUserId: principal.userId,
+        })) });
+      }
+      return { imported: additions.length, remaining: targetNames.size - resolvedNames.size };
+    });
   }
 
   async archive(

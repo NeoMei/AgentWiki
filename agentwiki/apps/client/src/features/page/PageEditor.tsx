@@ -35,7 +35,7 @@ import { canRestoreDraft, type AuthorizedDraftPage } from './localDrafts';
 import { useLocalDraft } from './useLocalDraft';
 import { LocalDraftNotice } from './LocalDraftNotice';
 import { AttachmentPickerDialog } from '../attachments/AttachmentPickerDialog';
-import { uploadAttachment } from '../attachments/attachmentApi';
+import { importPageImages, uploadAttachment } from '../attachments/attachmentApi';
 import { formatAttachmentReference } from '../attachments/attachmentReference';
 import 'highlight.js/styles/github.css';
 import { useOptionalSpaceWorkspace, usePageWorkspaceIdentity } from '../space-workspace/SpaceWorkspaceContext';
@@ -213,6 +213,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
   const [moreActionsPosition, setMoreActionsPosition] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
   const [templateDialogSnapshot, setTemplateDialogSnapshot] = useState<TemplateDialogSnapshot | null>(null);
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
+  const [attachmentRevision, setAttachmentRevision] = useState(0);
   const [bindingDialogOpen, setBindingDialogOpen] = useState(false);
   const [compositeCapability, setCompositeCapability] = useState<{
     identity: string;
@@ -1114,12 +1115,15 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         || routeGenerationRef.current !== requestedRouteGeneration
         || activePageIdRef.current !== requestedId
       ) return;
+      const missingAttachments = err.response?.data?.error?.code === 'ATTACHMENT_MISSING';
       showStatus({
         kind: 'error',
-        text: t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
+        text: missingAttachments
+          ? t('attachment.importSaveHelp')
+          : t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
       }, 'save', 5000);
       if ([401, 403, 404].includes(err.response?.status)) { readableUserIdRef.current = null; invalidateWriteCapability(); }
-      if (err.response?.status === 409) {
+      if (err.response?.status === 409 && !missingAttachments) {
         dismissedRemoteRevisionRef.current = null;
         void loadPage(false, true);
       }
@@ -1526,6 +1530,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
             onRequestAssist={notesWritable ? requestSelectionAssist : undefined}
             pageId={page.id}
             spaceId={page.spaceId}
+            attachmentRevision={attachmentRevision}
             onUploadImages={attachmentEnabled ? handleUploadImages : undefined}
             onUploadError={attachmentEnabled ? handleImageUploadError : undefined}
           />
@@ -1582,6 +1587,14 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
           canManage={page.capabilities?.canManageAttachments === true}
           returnFocusTo={attachmentButtonRef.current}
           onClose={() => setAttachmentPickerOpen(false)}
+          onImportFromPage={async (sourcePageId) => {
+            const source = internalWorkspaceRef.current?.currentValue() ?? contentRef.current;
+            const result = await importPageImages(page.spaceId, sourcePageId, page.id, source);
+            if (mountedRef.current && activePageIdRef.current === page.id && result.imported > 0) {
+              setAttachmentRevision((revision) => revision + 1);
+            }
+            return result;
+          }}
           onInsert={(canonicalPath) => {
             if (!attachmentEnabled) return;
             internalWorkspaceRef.current?.insertText(formatAttachmentReference(canonicalPath));

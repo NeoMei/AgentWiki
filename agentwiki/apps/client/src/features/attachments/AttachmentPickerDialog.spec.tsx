@@ -46,6 +46,23 @@ describe('AttachmentPickerDialog', () => {
     mocks.listAttachments.mockResolvedValue({ items: [attachment()], total: 1, skip: 0, take: 20 });
   });
 
+  it('imports images from an explicit AgentWiki page and leaves the draft untouched', async () => {
+    const onImportFromPage = vi.fn().mockResolvedValue({ imported: 1, remaining: 1 });
+    const { onInsert } = renderDialog({ onImportFromPage });
+    fireEvent.click(screen.getByText('Recover images from a source page'));
+    const source = screen.getByRole('textbox', { name: 'Source page link' });
+    fireEvent.change(source, { target: { value: 'https://unrelated.example/pages/source-page' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Import missing images' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a link to a page on this AgentWiki site.');
+    expect(onImportFromPage).not.toHaveBeenCalled();
+
+    fireEvent.change(source, { target: { value: `${window.location.origin}/pages/source-page` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Import missing images' }));
+    expect(await screen.findByText('Imported 1 image(s). 1 missing image(s) could not be matched.')).toBeInTheDocument();
+    expect(onImportFromPage).toHaveBeenCalledWith('source-page');
+    expect(onInsert).not.toHaveBeenCalled();
+  });
+
   it('loads active attachments, searches with stale suppression, filters and loads more using server pagination', async () => {
     const stale = deferred<{ items: ReturnType<typeof attachment>[]; total: number; skip: number; take: number }>();
     mocks.listAttachments
