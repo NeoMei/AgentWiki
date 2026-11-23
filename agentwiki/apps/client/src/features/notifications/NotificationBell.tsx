@@ -6,7 +6,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { notificationsApi, type NotificationList, type UserNotification } from './notificationsApi';
 import { subscribeNotificationsChanged } from './notificationEvents';
 
-const POLL_INTERVAL = 5_000;
+const POLL_INTERVAL = 30_000;
 
 const formatNotificationDate = (value: string, language: string) => {
   const date = new Date(value);
@@ -52,20 +52,21 @@ export const NotificationBell: React.FC = () => {
       return;
     }
     const controller = new AbortController();
-    void load(controller.signal);
-    const refresh = () => { void load(); };
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void load(controller.signal);
+    };
+    refresh();
     const unsubscribe = subscribeNotificationsChanged(refresh);
-    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refresh(); };
     const timer = window.setInterval(refresh, POLL_INTERVAL);
     window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
       ++sequenceRef.current;
       controller.abort();
       window.clearInterval(timer);
       unsubscribe();
       window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [canPoll, load, location.pathname]);
 

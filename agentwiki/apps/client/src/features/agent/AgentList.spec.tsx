@@ -60,6 +60,25 @@ describe('AgentList create dialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('explains a rate-limited list and retries without presenting it as empty', async () => {
+    vi.mocked(api.get)
+      .mockRejectedValueOnce({ response: { status: 429, data: { message: 'Too many requests' } } })
+      .mockResolvedValueOnce({ data: [{
+        id: 'existing-agent', name: '已有智能体', status: 'active', grants: [],
+        _count: { credentials: 1, auditEvents: 0 },
+      }] });
+    render(<MemoryRouter><LanguageProvider><AgentList /></LanguageProvider></MemoryRouter>);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('请求过于频繁，请稍后再试');
+    expect(screen.queryByText('还没有智能体')).not.toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+
+    expect(await screen.findByRole('link', { name: /已有智能体/ })).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledTimes(2);
+  });
+
   it('shows reconnect only for active Agents flagged by the API', async () => {
     const base = { status: 'active', grants: [], _count: { credentials: 0, auditEvents: 0 } };
     vi.mocked(api.get).mockResolvedValue({ data: [

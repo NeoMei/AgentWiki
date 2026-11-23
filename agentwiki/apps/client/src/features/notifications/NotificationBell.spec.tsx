@@ -40,4 +40,25 @@ describe('NotificationBell', () => {
     fireEvent.click(await screen.findByRole('button', { name: /New note/ }));
     await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/pages/p1'));
   });
+
+  it('pauses polling while hidden and refreshes when visible again', async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      renderBell();
+      await act(async () => vi.advanceTimersByTimeAsync(30_000));
+      expect(notificationApiMock.list).not.toHaveBeenCalled();
+
+      visibility.mockReturnValue('visible');
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(notificationApiMock.list).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(notificationApiMock.list).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(25_000));
+      expect(notificationApiMock.list).toHaveBeenCalledTimes(2);
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });

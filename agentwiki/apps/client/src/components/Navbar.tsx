@@ -11,6 +11,7 @@ import { UserAvatar } from './UserAvatar';
 import { REVIEW_CHANGED_EVENT } from '../features/review/review-events';
 
 const NotificationBell = lazy(() => import('../features/notifications/Notifications').then((module) => ({ default: module.NotificationBell })));
+const REVIEW_COUNT_POLL_INTERVAL_MS = 30_000;
 
 export const Navbar: React.FC = () => {
   const { token, user, logout } = useAuth();
@@ -40,19 +41,20 @@ export const Navbar: React.FC = () => {
       setReviewCount(0);
       return;
     }
-    void loadReviewCount();
-    const refresh = () => { void loadReviewCount(); };
-    const refreshWhenVisible = () => { if (document.visibilityState === 'visible') refresh(); };
-    const timer = window.setInterval(refresh, 5000);
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void loadReviewCount();
+    };
+    refresh();
+    const timer = window.setInterval(refresh, REVIEW_COUNT_POLL_INTERVAL_MS);
     window.addEventListener('focus', refresh);
     window.addEventListener(REVIEW_CHANGED_EVENT, refresh);
-    document.addEventListener('visibilitychange', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refresh);
     return () => {
       ++reviewCountSequenceRef.current;
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
       window.removeEventListener(REVIEW_CHANGED_EVENT, refresh);
-      document.removeEventListener('visibilitychange', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refresh);
     };
   }, [canPoll, loadReviewCount, location.pathname]);
 

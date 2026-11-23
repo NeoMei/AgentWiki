@@ -1,9 +1,10 @@
 import { AgentArchiveDialog } from './AgentArchiveDialog';
 import { bugOperationsText } from '../../i18n/bug-operations-messages';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, KeyRound, Pause, Play, PlugZap, X } from 'lucide-react';
 import api from '../../api/client';
+import { apiErrorMessage } from '../../api/error-message';
 import { useLanguage } from '../../context/LanguageContext';
 import { ModalDialog } from '../../components/ModalDialog';
 import { agentOwnerText, type AgentOwnerSummary } from './agentOwner';
@@ -24,21 +25,28 @@ export const AgentList: React.FC = () => {
   const op = (key: string) => bugOperationsText(language, key);
   const [showArchived, setShowArchived] = useState(false);
   const [archiveAgent, setArchiveAgent] = useState<Agent | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<Agent[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState<{ reason: unknown } | null>(null);
+  const loadSequence = useRef(0);
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', description: '' });
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current;
+    setLoading(true);
     try {
-      const response = await api.get<Agent[]>('/agents?includeArchived=true');
-      setAgents(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || t('agent.loadFailed'));
+      const { data } = await api.get<Agent[]>('/agents?includeArchived=true');
+      if (sequence === loadSequence.current) {
+        setAgents(data);
+        setListError(null);
+      }
+    } catch (reason) {
+      if (sequence === loadSequence.current) setListError({ reason });
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }, []);
 
@@ -73,10 +81,11 @@ export const AgentList: React.FC = () => {
 
   const duplicateNames = useMemo(() => {
     const counts = new Map<string, number>();
-    agents.forEach((agent) => counts.set(agent.name, (counts.get(agent.name) ?? 0) + 1));
+    agents?.forEach((agent) => counts.set(agent.name, (counts.get(agent.name) ?? 0) + 1));
     return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([name]) => name));
   }, [agents]);
-  if (loading) return <div className="py-12 text-center text-gray-500">{t('common.loading')}</div>;
+  const visibleAgents = agents?.filter((agent) => (agent.status === 'archived') === showArchived) ?? [];
+  if (loading && !agents && !listError) return <div className="py-12 text-center text-gray-500">{t('common.loading')}</div>;
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -96,17 +105,25 @@ export const AgentList: React.FC = () => {
       </div>
 
       {error ? <div className="mb-4 p-3 border border-red-200 bg-red-50 text-red-700 rounded-lg text-sm">{error}</div> : null}
+      {listError ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p role="alert">{apiErrorMessage(listError.reason, t, 'agent.loadFailed')}</p>
+          <button type="button" disabled={loading} onClick={() => void load()} className="rounded-lg border bg-white px-3 py-1.5 disabled:opacity-50">
+            {loading ? t('common.loading') : t('common.retry')}
+          </button>
+        </div>
+      ) : null}
 
-      <button type="button" aria-pressed={showArchived} onClick={() => setShowArchived(!showArchived)} className="mb-4 rounded-lg border px-3 py-2 text-sm">{op(showArchived ? 'operations.showCurrent' : 'operations.showArchived')}</button>
-      {agents.filter((agent) => (agent.status === 'archived') === showArchived).length === 0 ? (
+      {agents ? <button type="button" aria-pressed={showArchived} onClick={() => setShowArchived(!showArchived)} className="mb-4 rounded-lg border px-3 py-2 text-sm">{op(showArchived ? 'operations.showCurrent' : 'operations.showArchived')}</button> : null}
+      {agents && !listError && visibleAgents.length === 0 ? (
         <div className="border rounded-[14px] py-16 text-center bg-white">
           <Bot size={36} className="mx-auto text-gray-300 mb-3" />
           <p className="font-medium">{t('agent.empty')}</p>
           <p className="text-sm text-gray-500 mt-1">{t('agent.emptyHelp')}</p>
         </div>
-      ) : (
+      ) : visibleAgents.length > 0 ? (
         <div className="border rounded-[14px] bg-white divide-y">
-          {agents.filter((agent) => (agent.status === 'archived') === showArchived).map((agent) => (
+          {visibleAgents.map((agent) => (
             <div key={agent.id} className="p-4 flex flex-wrap items-center gap-4">
               <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center"><Bot size={20} /></div>
               <Link to={'/agents/' + agent.id} className="min-w-0 flex-1">
@@ -130,7 +147,7 @@ export const AgentList: React.FC = () => {
             </div>
           ))}
         </div>
-      )}
+      ) : null}
 
       {archiveAgent ? <AgentArchiveDialog agent={archiveAgent} onClose={() => setArchiveAgent(null)} onChanged={load} /> : null}
       {showCreate ? (

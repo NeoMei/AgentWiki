@@ -59,7 +59,7 @@ describe('Navbar global destinations', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     await act(async () => window.dispatchEvent(new Event(REVIEW_CHANGED_EVENT)));
     expect(screen.getByText('3')).toBeInTheDocument();
-    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(screen.getByText('4')).toBeInTheDocument();
     expect(apiMock.get).toHaveBeenCalledTimes(4);
     vi.useRealTimers();
@@ -78,6 +78,25 @@ describe('Navbar global destinations', () => {
 
     expect(screen.getByText('2')).toBeInTheDocument();
   });
+
+  it('skips background review refreshes and refreshes when visible again', async () => {
+    vi.useFakeTimers();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    try {
+      render(<LanguageProvider><MemoryRouter><Navbar /></MemoryRouter></LanguageProvider>);
+      await act(async () => vi.advanceTimersByTimeAsync(30_000));
+      expect(apiMock.get).not.toHaveBeenCalled();
+
+      visibility.mockReturnValue('visible');
+      await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+      expect(apiMock.get).toHaveBeenCalledTimes(1);
+      await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(apiMock.get).toHaveBeenCalledTimes(1);
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
 
  it('does not poll during forced password change and resumes after completion', async () => {
@@ -90,7 +109,7 @@ describe('Navbar global destinations', () => {
     view.rerender(<LanguageProvider><MemoryRouter initialEntries={['/change-password']}><Navbar /></MemoryRouter></LanguageProvider>);
     await act(async () => Promise.resolve());
     expect(apiMock.get).toHaveBeenCalledTimes(1);
-    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
     expect(apiMock.get).toHaveBeenCalledTimes(2);
     view.unmount();
     vi.useRealTimers();
