@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useState, useRef, useMe
 import { Link, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { io, Socket } from 'socket.io-client';
 import api from '../../api/client';
-import { apiErrorMessage } from '../../api/error-message';
+import { apiErrorMessage, attachmentUploadErrorMessage } from '../../api/error-message';
 import { getContentTreeRevision } from '../../api/content-tree';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
@@ -60,7 +60,7 @@ interface Page {
   spaceId: string;
   folderId?: string | null;
   updatedAt: string;
-  capabilities?: { canEdit?: boolean; canManageAttachments?: boolean };
+  capabilities?: { canEdit?: boolean; canManageAttachments?: boolean; canUploadAttachments?: boolean };
   provenance?: PageInfoPanelProps['provenance'];
   sourceStatus?: PageInfoPanelProps['sourceStatus'];
   evidence?: PageInfoPanelProps['evidence'];
@@ -321,7 +321,8 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     && compositeCapability?.identity === templateCapabilityIdentity ? compositeCapability.capabilities : {};
   const bindingEnabled = compositeCapabilities.canBindAgent === true;
   const templateCreationBlocked = isDirty || saving || remoteUpdate !== null;
-  const attachmentEnabled = !writeUnavailable && page?.capabilities?.canManageAttachments === true
+  const attachmentEnabled = !writeUnavailable && page !== null
+    && (page.capabilities?.canUploadAttachments ?? page.capabilities?.canManageAttachments) === true
     && page.id === id
     && page.format === 'markdown'
     && mode === 'edit'
@@ -462,7 +463,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     localDraft.suspend();
     const accepted = pageRef.current;
     if (accepted) {
-      const revoked = { ...accepted, capabilities: { ...accepted.capabilities, canEdit: false, canManageAttachments: false } };
+      const revoked = { ...accepted, capabilities: { ...accepted.capabilities, canEdit: false, canManageAttachments: false, canUploadAttachments: false } };
       pageRef.current = revoked;
       setPage(revoked);
     }
@@ -910,7 +911,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
 
   const handleImageUploadError = useCallback((error: unknown) => {
     if (error instanceof StaleAttachmentUploadError || !mountedRef.current || !attachmentEnabled) return;
-    showStatus({ kind: 'error', text: t('attachment.uploadFailed') }, 'attachment', 5000);
+    showStatus({ kind: 'error', text: attachmentUploadErrorMessage(error, t) ?? t('attachment.uploadFailed') }, 'attachment', 5000);
   }, [attachmentEnabled, showStatus, t]);
 
   const handleUploadImages = useCallback(async (files: File[]) => {
@@ -1567,6 +1568,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
       {attachmentPickerOpen && attachmentEnabled ? (
         <AttachmentPickerDialog
           spaceId={page.spaceId}
+          canManage={page.capabilities?.canManageAttachments === true}
           returnFocusTo={attachmentButtonRef.current}
           onClose={() => setAttachmentPickerOpen(false)}
           onInsert={(canonicalPath) => {

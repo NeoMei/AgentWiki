@@ -150,16 +150,16 @@ describe('PageController.remove', () => {
 
 describe('PageController.findOne', () => {
   it.each([
-    ['owner', false, 'user', true, true],
-    ['editor', false, 'user', true, true],
-    ['admin', false, 'user', true, false],
-    ['viewer', false, 'user', false, false],
-    ['owner', true, 'user', false, false],
-    ['owner', true, 'super_admin', false, false],
-    ['viewer', false, 'super_admin', false, false],
+    ['owner', false, 'user', true, true, true],
+    ['editor', false, 'user', true, true, true],
+    ['admin', false, 'user', true, false, true],
+    ['viewer', false, 'user', false, false, false],
+    ['owner', true, 'user', false, false, false],
+    ['owner', true, 'super_admin', false, false, false],
+    ['viewer', false, 'super_admin', false, false, false],
   ] as const)(
-    'maps role %s, agent=%s, platformRole=%s to canEdit=%s and canManageAttachments=%s',
-    async (role, agent, platformRole, canEdit, canManageAttachments) => {
+    'maps role %s, agent=%s, platformRole=%s to canEdit=%s and canManageAttachments=%s and canUploadAttachments=%s',
+    async (role, agent, platformRole, canEdit, canManageAttachments, canUploadAttachments) => {
       const pageService = {
         findOne: jest.fn().mockResolvedValue({
           id: 'page-1',
@@ -180,7 +180,7 @@ describe('PageController.findOne', () => {
 
       const result = await controller.findOne('page-1', { user: principal } as any);
 
-      expect(result.capabilities).toEqual({ canEdit, canManageAttachments });
+      expect(result.capabilities).toEqual({ canEdit, canManageAttachments, canUploadAttachments });
       expect(authorization.assertPageAccess).toHaveBeenCalledWith(
         principal,
         'page-1',

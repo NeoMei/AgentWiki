@@ -371,7 +371,7 @@ describe('AttachmentService', () => {
     expect(h.revisionWriter.advanceReferencedImagesLocked).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['owner', 'editor'] as const)('allows a live human %s to upload', async (role) => {
+  it.each(['owner', 'admin', 'editor'] as const)('allows a live human %s to upload', async (role) => {
     const h = harness();
     await expect(h.service.upload('space-1', uploadFile(), principal(role)))
       .resolves.toMatchObject({ displayName: 'Photo.png', sizeBytes: '40' });
@@ -416,9 +416,9 @@ describe('AttachmentService', () => {
     expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);
   });
 
-  it.each(['admin', 'viewer'] as const)('denies a live human %s before publishing', async (role) => {
+  it('denies a viewer before publishing', async () => {
     const h = harness();
-    await expect(h.service.upload('space-1', uploadFile(), principal(role)))
+    await expect(h.service.upload('space-1', uploadFile(), principal('viewer')))
       .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
     expect(h.storage.publish).not.toHaveBeenCalled();
     expect(h.storage.releaseTempReservation).toHaveBeenCalledWith(TEMP_RESERVATION);

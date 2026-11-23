@@ -380,6 +380,16 @@ describe('AttachmentPickerDialog', () => {
     expect(screen.queryByRole('button', { name: /force/i })).not.toBeInTheDocument();
   });
 
+  it('lets users with upload-only access add images without offering attachment management', async () => {
+    renderDialog({ canManage: false });
+    const row = await screen.findByRole('listitem', { name: 'diagram.png' });
+
+    expect(screen.getByLabelText('Upload image')).toBeEnabled();
+    expect(within(row).getByRole('button', { name: 'Insert diagram.png' })).toBeEnabled();
+    expect(within(row).queryByRole('button', { name: 'Rename diagram.png' })).not.toBeInTheDocument();
+    expect(within(row).queryByRole('button', { name: 'Archive diagram.png' })).not.toBeInTheDocument();
+  });
+
   it('renders the rename entry and labels in Chinese', async () => {
     localStorage.setItem('agentwiki.language.v1', 'zh-CN');
     renderDialog();

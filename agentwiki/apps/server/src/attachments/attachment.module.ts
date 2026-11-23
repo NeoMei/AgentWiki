@@ -40,6 +40,8 @@ import { AttachmentRenamePreviewTokenService } from './attachment-rename-preview
         storage: AttachmentStorage,
         prisma: PrismaService,
       ) => ({
+        // Browser FormData sends unextended multipart filenames as UTF-8.
+        defParamCharset: 'utf8',
         storage: new AttachmentUploadStorage(
           storage,
           config,

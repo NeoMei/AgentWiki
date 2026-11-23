@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SpaceAttachmentStatus, type SpaceAttachment } from '@prisma/client';
 import { canonicalBytes, FlatAttachmentPathSchema } from '@neomei/agentwiki-sync-protocol';
-import { AuthorizationService, type Principal } from '../core/authorization/authorization.service';
+import { AuthorizationService, SPACE_ATTACHMENT_UPLOAD_ROLES, type Principal, type SpaceRole } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { SpaceRevisionWriterService } from '../core/sync/space-revision-writer.service';
 import { SearchService } from '../core/search/search.service';
@@ -280,7 +280,7 @@ export class AttachmentService {
       throw new Error('A matching attachment temp reservation is required');
     }
     try {
-      await this.assertWritableHuman(this.prisma, principal, spaceId);
+      await this.assertWritableHuman(this.prisma, principal, spaceId, SPACE_ATTACHMENT_UPLOAD_ROLES);
       let prepared: PreparedAttachment;
       try {
         prepared = await validateUploadedImage({
@@ -579,7 +579,7 @@ export class AttachmentService {
       const attachment = await this.prisma.$transaction(async (tx) => {
         await this.authorization.lockLiveHumanPrincipal(tx, principal);
         await this.revisionWriter.lockSpace(tx, spaceId);
-        const live = await this.assertWritableHuman(tx, principal, spaceId);
+        const live = await this.assertWritableHuman(tx, principal, spaceId, SPACE_ATTACHMENT_UPLOAD_ROLES);
 
         const identical = await tx.spaceAttachment.findFirst({
           where: {
@@ -920,6 +920,7 @@ export class AttachmentService {
     db: Prisma.TransactionClient,
     principal: Principal,
     spaceId: string,
+    allowedRoles: readonly SpaceRole[] = WRITE_ROLES,
   ) {
     if (principal.agentId) {
       throw new BusinessException('SPACE_ACCESS_DENIED', 'Agents cannot mutate binary attachments');
@@ -928,10 +929,12 @@ export class AttachmentService {
       db,
       principal,
       spaceId,
-      [...WRITE_ROLES],
+      [...allowedRoles],
     );
-    if (!WRITE_ROLES.includes(access.role as typeof WRITE_ROLES[number])) {
-      throw new BusinessException('SPACE_ACCESS_DENIED', 'Only Space owners and editors can mutate attachments');
+    if (!allowedRoles.includes(access.role)) {
+      // General Space write checks also admit admins. Attachment operations
+      // must enforce their exact allowed roles.
+      throw new BusinessException('SPACE_ACCESS_DENIED', 'This Space role cannot perform this attachment operation');
     }
     return access;
   }

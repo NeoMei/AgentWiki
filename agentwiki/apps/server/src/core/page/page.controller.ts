@@ -9,7 +9,7 @@ import {
   UpdatePageDto,
 } from '../dto/page.dto';
 import { CombinedAuthGuard } from '../auth/combined-auth.guard';
-import { AuthorizationService } from '../authorization/authorization.service';
+import { AuthorizationService, SPACE_ATTACHMENT_UPLOAD_ROLES } from '../authorization/authorization.service';
 import { ReviewService } from '../../review/review.service';
 import { parseLimit, parseOffset } from '../utils/pagination';
 import { BusinessException } from '../filters/business-error';
@@ -116,10 +116,11 @@ export class PageController {
       && (['owner', 'admin', 'editor'].includes(String(access.role)));
     const canManageAttachments = !principal.agentId
       && (['owner', 'editor'].includes(String(access.role)));
+    const canUploadAttachments = !principal.agentId && SPACE_ATTACHMENT_UPLOAD_ROLES.some(role => role === access.role);
     this.logger.log('Finding page: ' + id);
     return {
       ...await this.pageService.findOne(id, req.user as any),
-      capabilities: { canEdit, canManageAttachments },
+      capabilities: { canEdit, canManageAttachments, canUploadAttachments },
     };
   }
 

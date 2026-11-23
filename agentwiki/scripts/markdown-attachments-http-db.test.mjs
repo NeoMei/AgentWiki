@@ -329,6 +329,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       });
       assert.equal((await request(`/spaces/${namedSpace.id}`, { token: owner.token })).data.name, '重命名');
       const editor = await register('editor');
+      const admin = await register('admin');
       const viewer = await register('viewer');
       const outsider = await register('outsider');
       const space = (await request('/spaces', {
@@ -337,7 +338,7 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
       const outsiderSpace = (await request('/spaces', {
         method: 'POST', token: outsider.token, body: { name: `Outsider ${randomUUID().slice(0, 8)}` },
       })).data;
-      for (const [human, role] of [[editor, 'editor'], [viewer, 'viewer']]) {
+      for (const [human, role] of [[editor, 'editor'], [admin, 'admin'], [viewer, 'viewer']]) {
         await request(`/spaces/${space.id}/members`, {
           method: 'POST', token: owner.token, body: { email: human.email, role },
         });
@@ -376,8 +377,19 @@ test('real HTTP attachment lifecycle, authorization, quota, storage, and cleanup
         where: { spaceId: space.id, status: 'active' },
       }), activeBeforeInvalidUpload);
 
+      await request(`/spaces/${namedSpace.id}/members`, {
+        method: 'POST', token: owner.token, body: { email: editor.email, role: 'editor' },
+      });
+      const screenshotName = '截图-施工现场.png';
+      const editorUpload = (await request(`/spaces/${namedSpace.id}/attachments`, {
+        method: 'POST', token: editor.token,
+        form: multipart(PNG, screenshotName, 'image/png'),
+      })).data;
+      assert.equal(editorUpload.displayName, screenshotName);
+      assert.equal(editorUpload.canonicalPath, `assets/${screenshotName}`);
+
       const alpha = (await request(`/spaces/${space.id}/attachments`, {
-        method: 'POST', token: owner.token,
+        method: 'POST', token: admin.token,
         form: multipart(PNG, 'Alpha.png', 'image/png'),
       })).data;
       const beta = (await request(`/spaces/${space.id}/attachments`, {

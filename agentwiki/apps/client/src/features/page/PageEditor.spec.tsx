@@ -2634,17 +2634,17 @@ describe('PageEditor remote update safety', () => {
     expect(contentEditorValue()).toBe('Admin page edit');
   });
 
-  it('enables attachment picker and paste for the dedicated owner/editor capability', async () => {
+  it('enables attachment picker and paste with upload permission alone', async () => {
     attachmentMocks.uploadAttachment.mockResolvedValue(attachment('allowed.png'));
     queuePages({ data: page({
-      capabilities: { canEdit: true, canManageAttachments: true },
+      capabilities: { canEdit: true, canManageAttachments: false, canUploadAttachments: true },
     }) });
     renderEditor();
 
     expect(await screen.findByRole('button', { name: 'Image attachments' })).toBeEnabled();
     pasteImage(new File(['png'], 'allowed.png', { type: 'image/png' }));
 
-    await waitFor(() => expect(attachmentMocks.uploadAttachment).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(contentEditorValue()).toContain('![[assets/allowed.png]]'));
   });
 
   it('picker upload inserts the final suffixed server name and enables save', async () => {
@@ -2858,6 +2858,22 @@ describe('PageEditor remote update safety', () => {
 
     expect(contentEditorValue()).toBe('Completely replaced remote content');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('explains invalid image uploads and keeps the draft available for retry', async () => {
+    attachmentMocks.uploadAttachment
+      .mockRejectedValueOnce({ response: { status: 400, data: { code: 'BAD_REQUEST' } } })
+      .mockResolvedValueOnce(attachment('valid.png'));
+    queuePages({ data: page({ capabilities: { canEdit: true, canManageAttachments: true } }) });
+    renderEditor();
+
+    await screen.findByRole('button', { name: 'Image attachments' });
+    pasteImage(new File(['png'], 'invalid.png', { type: 'image/png' }));
+    expect(await screen.findByText(/check its file name, format, and dimensions/i)).toBeInTheDocument();
+    expect(contentEditorValue()).toBe('Original content');
+
+    pasteImage(new File(['png'], 'valid.png', { type: 'image/png' }));
+    await waitFor(() => expect(contentEditorValue()).toContain('![[assets/valid.png]]'));
   });
 
   it('clears an attachment failure when navigating from page A to page B', async () => {

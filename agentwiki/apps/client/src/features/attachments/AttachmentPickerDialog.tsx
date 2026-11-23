@@ -1,7 +1,7 @@
 import { NativeSelect } from '../../components/NativeSelect';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { apiErrorCode, apiErrorMessage } from '../../api/error-message';
+import { apiErrorCode, apiErrorMessage, attachmentUploadErrorMessage } from '../../api/error-message';
 import { ModalDialog } from '../../components/ModalDialog';
 import { useLanguage } from '../../context/LanguageContext';
 import {
@@ -23,6 +23,7 @@ const ACCEPTED_IMAGES = '.png,.jpg,.jpeg,.webp,.gif';
 
 export interface AttachmentPickerDialogProps {
   spaceId: string;
+  canManage?: boolean;
   onClose: () => void;
   onInsert: (canonicalPath: string) => void;
   returnFocusTo?: HTMLElement | null;
@@ -30,6 +31,7 @@ export interface AttachmentPickerDialogProps {
 
 export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
   spaceId,
+  canManage = true,
   onClose,
   onInsert,
   returnFocusTo,
@@ -216,7 +218,7 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
       await reconciliation;
     } catch (caught) {
       if (!aliveRef.current) return;
-      const message = translatedError(caught, 'attachment.uploadFailed');
+      const message = attachmentUploadErrorMessage(caught, t) ?? translatedError(caught, 'attachment.uploadFailed');
       setError(message);
       setAnnouncement(message);
       setUploadProgress(null);
@@ -352,9 +354,9 @@ export const AttachmentPickerDialog: React.FC<AttachmentPickerDialogProps> = ({
             {item.status === 'active' && !item.referenceable ? <p className="text-xs text-amber-700">{t('attachment.renameBeforeInsert')}</p> : null}
           </div>
           {item.status === 'active' ? <button type="button" disabled={criteriaLocked || !item.referenceable || item.canonicalPath === null} aria-label={t('attachment.insertNamed', { name: item.displayName })} onClick={() => insertExisting(item)} className="min-h-10 rounded-lg bg-blue-600 px-3 text-sm text-white disabled:opacity-50">{t('attachment.insert')}</button> : null}
-          {item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.renameNamed', { name: item.displayName })} onClick={(event) => startRename(item, event.currentTarget)} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{t('attachment.rename')}</button> : null}
-          <button type="button" disabled={criteriaLocked} aria-label={t(item.status === 'active' ? 'attachment.archiveNamed' : 'attachment.restoreNamed', { name: item.displayName })} onClick={() => void mutate(item, item.status === 'active' ? 'archive' : 'restore')} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{busy ? t('common.loading') : t(item.status === 'active' ? 'attachment.archive' : 'attachment.restore')}</button>
-          {renameItem?.id === item.id ? <div className="w-full rounded-lg bg-gray-50 p-3" onKeyDown={(event) => {
+          {canManage && item.status === 'active' ? <button type="button" disabled={criteriaLocked} aria-label={t('attachment.renameNamed', { name: item.displayName })} onClick={(event) => startRename(item, event.currentTarget)} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{t('attachment.rename')}</button> : null}
+          {canManage ? <button type="button" disabled={criteriaLocked} aria-label={t(item.status === 'active' ? 'attachment.archiveNamed' : 'attachment.restoreNamed', { name: item.displayName })} onClick={() => void mutate(item, item.status === 'active' ? 'archive' : 'restore')} className="min-h-10 rounded-lg border px-3 text-sm disabled:opacity-50">{busy ? t('common.loading') : t(item.status === 'active' ? 'attachment.archive' : 'attachment.restore')}</button> : null}
+          {canManage && renameItem?.id === item.id ? <div className="w-full rounded-lg bg-gray-50 p-3" onKeyDown={(event) => {
             if (event.key === 'Escape') {
               event.stopPropagation();
               cancelRename();

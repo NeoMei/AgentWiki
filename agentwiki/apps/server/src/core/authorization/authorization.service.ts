@@ -15,6 +15,7 @@ import {
 } from './live-agent-authorization';
 
 export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer';
+export const SPACE_ATTACHMENT_UPLOAD_ROLES: readonly SpaceRole[] = ['owner', 'admin', 'editor'];
 export interface Principal {
   userId: string;
   agentId?: string;

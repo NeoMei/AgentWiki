@@ -78,3 +78,16 @@ export function apiErrorCode(error: unknown): string | null {
   const code = (error as { response?: { data?: { code?: unknown } } })?.response?.data?.code;
   return typeof code === 'string' ? code : null;
 }
+
+export function attachmentUploadErrorMessage(error: unknown, t: Translate): string | undefined {
+  const status = (error as { response?: { status?: number } } | null)?.response?.status;
+  switch (status) {
+    case 400: return t('attachment.uploadInvalidImage');
+    case 413: return t('attachment.uploadTooLarge');
+    case 409: return t('attachment.conflict');
+    case 401:
+    case 403:
+    case 429: return apiErrorMessage(error, t, 'attachment.uploadFailed');
+    default: return undefined;
+  }
+}

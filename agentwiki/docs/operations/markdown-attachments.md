@@ -49,8 +49,9 @@ not attachment-storage evidence.
 | Operation | Owner | Admin | Editor | Viewer | Outsider / Agent |
 | --- | --- | --- | --- | --- | --- |
 | List and render active attachments | yes | yes | yes | yes | no unless an Agent has the matching readable Space grant |
-| Upload, archive or restore | yes | no | yes | no | no |
-| Open picker / paste / drop in editor | yes | no | yes | no | no |
+| Upload | yes | yes | yes | no | no |
+| Archive or restore | yes | no | yes | no | no |
+| Open picker / paste / drop in editor | yes | yes | yes | no | no |
 | Delete Space | yes | no | no | no | no |
 
 Human read access is checked against the live Space on every list, resolver and Blob
