@@ -53,6 +53,19 @@ describe('Profile shortcuts', () => {
     expect(screen.getByRole('link', { name: /写作助手/ })).toHaveAttribute('href', '/agents/agent-1');
   });
 
+  it.each([
+    { language: 'zh-CN', scenario: /定时导出知识库页面/u, account: '你的账号有权访问的空间' },
+    { language: 'en', scenario: /scheduled export of wiki pages/u, account: 'spaces your account can access' },
+  ])('explains where and how to use a personal Key in $language', async ({ language, scenario, account }) => {
+    localStorage.setItem('agentwiki.language.v1', language);
+    render(<LanguageProvider><MemoryRouter><Profile /></MemoryRouter></LanguageProvider>);
+
+    const help = await screen.findByText(scenario);
+    expect(help).toHaveTextContent('x-api-key');
+    expect(help).toHaveTextContent('GET /api/spaces');
+    expect(help).toHaveTextContent(account);
+  });
+
   it('requires confirmation before regenerating a Key and refreshes owned Agent connection status', async () => {
     const agent = { id: 'agent-1', name: '写作助手', status: 'active' };
     apiMock.get
