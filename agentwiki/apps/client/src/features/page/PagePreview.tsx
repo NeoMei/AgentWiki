@@ -489,6 +489,23 @@ export const PagePreview: React.FC = () => {
       });
   }, [id]);
 
+  useLayoutEffect(() => {
+    const toolbar = readingToolbarRef.current;
+    const markdownRoot = markdownRootRef.current;
+    if (!toolbar || !markdownRoot) return;
+
+    // Native fragment jumps and scrollIntoView both honor this margin.
+    const updateHeadingOffset = () => {
+      const stickyTop = parseFloat(getComputedStyle(toolbar).top) || 0;
+      const offset = Math.ceil(stickyTop + toolbar.getBoundingClientRect().height) + 12;
+      markdownRoot.style.setProperty('--reading-heading-offset', `${offset}px`);
+    };
+    updateHeadingOffset();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateHeadingOffset);
+    observer?.observe(toolbar);
+    return () => observer?.disconnect();
+  }, [loading, page?.id]);
+
   useEffect(() => {
     if (loading || !id || !page || page.id !== id) return;
     const pageId = id;
