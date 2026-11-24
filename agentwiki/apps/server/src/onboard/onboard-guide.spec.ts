@@ -59,7 +59,7 @@ describe('public Agent connection guide', () => {
     expect(guide).toContain('Node.js 24 or 26');
   });
 
-  it.each(['0.13.4', '0.13.6'])('pins WorkBuddy runtime preparation to the requested %s installation version', (packageVersion) => {
+  it.each(['0.13.4', '0.13.6', '0.13.7'])('pins WorkBuddy runtime preparation to the requested %s installation version', (packageVersion) => {
     const controller = new OnboardController({} as any, {} as any);
     const guide = Reflect.apply(controller.getRuntime, controller, ['workbuddy', packageVersion]);
     expect(guide).toContain(`@neomei/agentwiki-local-sync@${packageVersion}`);
@@ -73,7 +73,7 @@ describe('public Agent connection guide', () => {
     expect(guide).toContain(`Package version: ${CURRENT_LOCAL_SYNC_VERSION}`);
   });
 
-  it.each(['', 'latest', '0.13.7', '0.13.4;echo unsafe', ['0.13.4', '0.13.6'], null])('rejects an unsupported or ambiguous runtime version %j before generating a runner', (packageVersion) => {
+  it.each(['', 'latest', '0.13.8', '0.13.4;echo unsafe', ['0.13.4', '0.13.6'], null])('rejects an unsupported or ambiguous runtime version %j before generating a runner', (packageVersion) => {
     const controller = new OnboardController({} as any, {} as any);
     for (const client of ['workbuddy', 'generic', 'codex']) {
       expect(() => Reflect.apply(controller.getRuntime, controller, [client, packageVersion])).toThrow(BadRequestException);
@@ -98,7 +98,7 @@ describe('public Agent connection guide', () => {
     expect(guide).toContain("<nodePath> <cliPath> onboard start --server 'https://agentwiki.quukk.com/api' --client <host-client> --protocol json");
     expect(guide.match(/^<nodePath> <cliPath> onboard /gm)).toHaveLength(4);
     expect(guide).not.toMatch(/^npx /m);
-    expect(guide).toContain('/onboard/runtime?client=<host-client>&packageVersion=0.13.6');
+    expect(guide).toContain('/onboard/runtime?client=<host-client>&packageVersion=0.13.7');
     expect(guide).toContain('--client workbuddy');
     expect(guide).toContain('Node.js 24 或 26');
     expect(guide).toContain('browserOpened:false');

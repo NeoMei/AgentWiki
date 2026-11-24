@@ -15,7 +15,7 @@ export interface ServerPlan {
   space: { mode: 'create'; name: string } | { mode: 'existing'; id: string };
   agentName: string;
   role: AgentAccessRole;
-  packageVersion: '0.13.6';
+  packageVersion: '0.13.7';
 }
 
 export interface NormalizedServerPlan extends ServerPlan {

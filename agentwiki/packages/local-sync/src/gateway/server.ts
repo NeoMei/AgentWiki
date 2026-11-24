@@ -76,7 +76,7 @@ export const gatewayToolInputSchemas = {
  * tools are registered and remote calls return REMOTE_UNAVAILABLE.
  */
 export async function createGatewayServer(context: GatewayContext): Promise<GatewayServer> {
-  const version = context.version ?? '0.13.6';
+  const version = context.version ?? '0.13.7';
   const connection = context.connection ? {
     connectionId: context.connection.connectionId,
     agentId: context.connection.agentId,

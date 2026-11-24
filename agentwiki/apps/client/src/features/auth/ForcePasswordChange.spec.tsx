@@ -35,7 +35,7 @@ function open(path: string) {
       : url === '/auth/change-required-password' ? { access_token: 'new-token', user: { ...activeUser, mustChangePassword: false } }
       : url === '/auth/unihub/status' ? { enabled: true }
       : url === '/onboard/device/session' ? {
-        clientType: 'codex', purpose: 'full-onboarding', packageVersion: '0.13.6',
+        clientType: 'codex', purpose: 'full-onboarding', packageVersion: '0.13.7',
         status: 'pending', expiresAt: '2099-01-01T00:00:00Z',
       } : {};
     return { data, status: 200, statusText: 'OK', headers: {}, config };

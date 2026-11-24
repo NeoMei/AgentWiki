@@ -121,7 +121,7 @@ describe('LocalSyncInstallationService', () => {
     );
   });
 
-  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4', '0.13.5', '0.13.6'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4', '0.13.5', '0.13.6', '0.13.7'] as const)(
     'issues installation instructions and payload for requested supported version %s',
     async (pluginVersion) => {
       const result = await service.create(
@@ -130,13 +130,13 @@ describe('LocalSyncInstallationService', () => {
 
       const stored = JSON.parse(redis.setOnce.mock.calls[0][1]);
       expect(stored.pluginVersion).toBe(pluginVersion);
-      if (pluginVersion === '0.13.6') {
+      if (pluginVersion === '0.13.6' || pluginVersion === '0.13.7') {
         expect(result.instructions).toContain('<nodePath> <cliPath> onboard');
-        expect(result.instructions).toContain('packageVersion=0.13.6');
+        expect(result.instructions).toContain(`packageVersion=${pluginVersion}`);
       } else {
         expect(result.instructions).toContain(`@neomei/agentwiki-local-sync@${pluginVersion} onboard`);
       }
-      if (pluginVersion !== '0.13.2' && pluginVersion !== '0.13.3' && pluginVersion !== '0.13.4' && pluginVersion !== '0.13.6') {
+      if (!['0.13.2', '0.13.3', '0.13.4', '0.13.6', '0.13.7'].includes(pluginVersion)) {
         expect(result.instructions).toContain('--agent auto');
         expect(result.instructions).not.toContain('--agent generic');
         expect(result.instructions).not.toContain('--agent workbuddy');
@@ -144,14 +144,15 @@ describe('LocalSyncInstallationService', () => {
     },
   );
 
-  it.each(['0.13.2', '0.13.3', '0.13.4', '0.13.6'] as const)('issues generic MCP instructions for %s without depending on another installed client', async (pluginVersion) => {
+  it.each(['0.13.2', '0.13.3', '0.13.4', '0.13.6', '0.13.7'] as const)('issues generic MCP instructions for %s without depending on another installed client', async (pluginVersion) => {
     const result = await service.create(
       'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
     );
 
-    const runner = pluginVersion === '0.13.6' ? '<nodePath> <cliPath>' : `npx --yes @neomei/agentwiki-local-sync@${pluginVersion}`;
+    const preinstalled = pluginVersion === '0.13.6' || pluginVersion === '0.13.7';
+    const runner = preinstalled ? '<nodePath> <cliPath>' : `npx --yes @neomei/agentwiki-local-sync@${pluginVersion}`;
     const command = result.instructions.split('\n').find((line) => line.startsWith(runner));
-    const client = (pluginVersion === '0.13.4' || pluginVersion === '0.13.6') ? '<host-client>' : 'generic';
+    const client = (pluginVersion === '0.13.4' || preinstalled) ? '<host-client>' : 'generic';
     expect(command).toBe(`${runner} onboard --server https://wiki.test/api --code ${result.code} --protocol ndjson --agent ${client}`);
     expect(result.instructions).toContain('local stdio MCP');
     expect(result.instructions).toContain('--agent workbuddy');
@@ -164,12 +165,13 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).not.toContain('--agent auto');
   });
 
-  it.each(['0.13.4', '0.13.6'] as const)('keeps %s installation bound to the selected Agent and routes runtime preparation before choosing a host command', async (pluginVersion) => {
+  it.each(['0.13.4', '0.13.6', '0.13.7'] as const)('keeps %s installation bound to the selected Agent and routes runtime preparation before choosing a host command', async (pluginVersion) => {
     const result = await service.create(
       'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
     );
     const lines = result.instructions.split('\n');
-    const runner = pluginVersion === '0.13.6' ? '<nodePath> <cliPath>' : 'npx --yes';
+    const preinstalled = pluginVersion === '0.13.6' || pluginVersion === '0.13.7';
+    const runner = preinstalled ? '<nodePath> <cliPath>' : 'npx --yes';
     const commandIndex = lines.findIndex((line) => line.startsWith(runner));
     expect(lines[commandIndex]).toMatch(/--agent <host-client>$/);
     expect(result.instructions).not.toMatch(/^node -e|^npx --cache/m);
@@ -177,7 +179,7 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('agent-1');
     expect(result.instructions).toContain('space-1');
     expect(lines.findIndex((line) => line.includes('/onboard/runtime?'))).toBeLessThan(commandIndex);
-    if (pluginVersion === '0.13.6') {
+    if (preinstalled) {
       expect(result.instructions).not.toContain('npx');
       expect(result.instructions).toContain('only when a usable copy of that version is absent');
     }
@@ -192,7 +194,7 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('replace --agent generic with --agent workbuddy');
   });
 
-  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4', '0.13.5', '0.13.6'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4', '0.13.5', '0.13.6', '0.13.7'] as const)(
     'keeps supported request %s valid while the deployed default remains 0.9.0',
     async (pluginVersion) => {
       config.get.mockImplementation((key: string) => (
@@ -204,8 +206,8 @@ describe('LocalSyncInstallationService', () => {
       await expect(service.create(
         'owner-1', 'agent-1', 'space-1', 'editor', pluginVersion, 'https://wiki.test/api',
       )).resolves.toEqual(expect.objectContaining({
-        instructions: expect.stringContaining(pluginVersion === '0.13.6'
-          ? 'packageVersion=0.13.6'
+        instructions: expect.stringContaining(pluginVersion === '0.13.6' || pluginVersion === '0.13.7'
+          ? `packageVersion=${pluginVersion}`
           : `@neomei/agentwiki-local-sync@${pluginVersion}`),
       }));
     },
@@ -530,7 +532,7 @@ describe('LocalSyncInstallationService', () => {
     expect(agents.exchangeConnectionIntent).not.toHaveBeenCalled();
   });
 
-  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4', '0.13.5', '0.13.6'] as const)(
+  it.each(['0.9.0', '0.9.1', '0.10.0', '0.10.1', '0.10.2', '0.11.0', '0.12.0', '0.13.0', '0.13.1', '0.13.2', '0.13.3', '0.13.4', '0.13.5', '0.13.6', '0.13.7'] as const)(
     'exchanges and replays a supported Local Sync %s installation without changing its version',
     async (pluginVersion) => {
       const versionPayload = { ...payload, pluginVersion };

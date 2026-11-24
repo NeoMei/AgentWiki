@@ -632,7 +632,7 @@ test('local-sync builds and packs without retired modules or public subpaths', a
 
 test('every active local-sync release surface uses the package version', async () => {
   const version = JSON.parse(await read('packages/local-sync/package.json')).version;
-  assert.equal(version, '0.13.6');
+  assert.equal(version, '0.13.7');
   for (const path of [
     '.env.example',
     'README.md',
@@ -709,10 +709,10 @@ test('every user-facing local-sync surface uses the published npm package name',
 
 
 
-test('the onboard controller advertises the pinned 0.13.6 onboarding command', async () => {
+test('the onboard controller advertises the pinned 0.13.7 onboarding command', async () => {
   const source = await read('apps/server/src/onboard/onboard.controller.ts');
   const versionSource = await read('apps/server/src/core/local-sync-version.ts');
-  assert.match(versionSource, /CURRENT_LOCAL_SYNC_VERSION = '0\.13\.6'/u);
+  assert.match(versionSource, /CURRENT_LOCAL_SYNC_VERSION = '0\.13\.7'/u);
   assert.match(source, /const PACKAGE_VERSION = CURRENT_LOCAL_SYNC_VERSION;/u);
   assert.match(source, /onboardRuntimeGuide\(client, packageVersion\)/u);
   assert.match(source, /onboard start --server/, 'onboard controller must advertise the pinned finite-process onboard command');
@@ -733,12 +733,12 @@ test('application release versions and independent sync versions stay aligned', 
     [appVersion, appVersion, appVersion],
     'application packages must use the same canonical semantic version as the root package',
   );
-  assert.equal(localSyncPackage.version, '0.13.6');
+  assert.equal(localSyncPackage.version, '0.13.7');
   assert.equal(syncProtocolPackage.version, '0.6.1');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
-  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.13\.6/u);
-  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.13\.6/u);
+  assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.13\.7/u);
+  assert.match(await read('docker-compose.yml'), /LOCAL_SYNC_PACKAGE_VERSION:-0\.13\.7/u);
 });
 
 test('the local-sync CLI exposes gateway and onboard commands without connect', async () => {

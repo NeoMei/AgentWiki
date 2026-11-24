@@ -70,7 +70,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.6', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.7', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
       },
     });
     await saveCredentials(home, { version: 1, credentials: { 'credential-1': { apiKey: 'test-key' } } });
@@ -136,7 +136,7 @@ describe('gateway entry', () => {
     await saveConfig(home, {
       version: 1,
       connections: {
-        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.6', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
+        primary: { id: 'primary', serverUrl: 'https://example.test', agentId: 'agent-1', credentialId: 'credential-1', pluginVersion: '0.13.7', client: 'codex', mcpName: 'agentwiki', spaceId: 'space-1' },
       },
     });
     await saveCredentials(home, {
@@ -221,7 +221,7 @@ it('reports the running connection independently of newer configuration and onbo
   const home = await temporaryHome();
   const running = {
     id: 'running-connection', serverUrl: 'https://running.test/api', agentId: 'running-agent',
-    credentialId: 'running-credential-private', pluginVersion: '0.13.6', client: 'codex' as const, mcpName: 'agentwiki',
+    credentialId: 'running-credential-private', pluginVersion: '0.13.7', client: 'codex' as const, mcpName: 'agentwiki',
   };
   await saveConfig(home, { version: 1, defaultConnectionId: running.id, connections: { [running.id]: running } });
   await saveCredentials(home, { version: 1, credentials: { [running.credentialId]: { apiKey: 'agk_running_private' } } });

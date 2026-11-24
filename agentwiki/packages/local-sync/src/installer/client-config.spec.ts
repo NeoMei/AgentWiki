@@ -569,7 +569,7 @@ describe('local runtime launch and retry', () => {
   it('upgrades a retired npx entry to the local runtime on the same confirmed hash', async () => {
     const home = await freshHome();
     const retired = JSON.stringify({ mcpServers: { agentwiki: {
-      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.6', 'gateway', '--connection', 'conn-1'],
+      command: 'npx', args: ['--yes', '@neomei/agentwiki-local-sync@0.13.7', 'gateway', '--connection', 'conn-1'],
     } } });
     await seedConfig('claude', home, retired);
     await mkdir(join(home, '.agentwiki-archive'));

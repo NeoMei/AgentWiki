@@ -8,7 +8,7 @@ it.each([true, false])('uses the prepared local runtime for every host and onboa
   for (const { id } of ONBOARD_CLIENTS) {
     const client = id === 'generic' ? '<actual-client>' : id;
     const prompt = buildOnboardPrompt(zh, id, 'https://wiki.example/api');
-    const url = `/onboard/runtime?client=${client}&packageVersion=0.13.6`;
+    const url = `/onboard/runtime?client=${client}&packageVersion=0.13.7`;
     const commands = prompt.split('\n').filter(line => line.startsWith('<nodePath> <cliPath> onboard '));
     expect(commands).toHaveLength(4);
     expect(commands[0]).toContain(`--client ${client} --protocol json`);
