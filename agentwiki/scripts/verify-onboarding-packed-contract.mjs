@@ -51,13 +51,19 @@ export async function verifyOnboardingPackedContract({ root, installDirectory, v
     onboardingBootstrap: bootstrapStore,
     onboardingDeviceSession: { updateMany: async () => ({ count: 1 }) },
     $transaction: async (fn) => fn({
+      $queryRaw: async () => undefined,
       onboardingBootstrap: bootstrapStore,
+      onboardingDeviceSession: {
+        findFirst: async () => ({ id: 'session-packed-test' }),
+        updateMany: async () => ({ count: 1 }),
+      },
+      apiKeyCredential: { count: async () => 0 },
       space: { create: async ({ data }) => ({ id: 'space-test', name: data.name }) },
       agent: { create: async ({ data }) => ({ id: 'agent-test', name: data.name }) },
     }),
   };
   const bootstrap = new OnboardBootstrapService(prisma, redis, installations, config);
-  const principal = { sessionId: 'session-packed-test', userId: 'owner-test', packageVersion: version, purpose: 'full-onboarding', requestedCapabilities: ['bootstrap:space', 'bootstrap:agent', 'bootstrap:installation'] };
+  const principal = { sessionId: 'session-packed-test', tokenHash: 'a'.repeat(64), userId: 'owner-test', packageVersion: version, purpose: 'full-onboarding', requestedCapabilities: ['bootstrap:space', 'bootstrap:agent', 'bootstrap:installation'] };
   const plan = { space: { mode: 'create', name: 'Packed publisher Space' }, agentName: 'Packed publisher', role: 'publisher', packageVersion: version };
   const requests = [];
   const http = createServer(async (req, res) => {
@@ -82,7 +88,7 @@ export async function verifyOnboardingPackedContract({ root, installDirectory, v
   try {
     assert.equal(clientHash(plan), serverHash(plan), 'packed and server publisher scopes must yield the same hash');
     const client = new OnboardingClient();
-    const result = await client.bootstrap({ serverBaseUrl: baseUrl, onboardingToken: 'test-only-token', idempotencyKey: 'packed-publisher-key', serverPlan: plan, serverPlanHash: clientHash(plan) });
+    const result = await client.bootstrap({ serverBaseUrl: baseUrl, onboardingToken: 'test-only-token', idempotencyKey: '018f3c72-8c95-7c1d-9b35-63ba0877a4d2', serverPlan: plan, serverPlanHash: clientHash(plan) });
     assert.deepEqual(requests[0].serverPlan, plan, 'send the original raw plan');
     assert.equal(Object.hasOwn(requests[0].serverPlan, 'scopes'), false);
     assert.deepEqual(result.grant.scopes, publisherScopes);
@@ -91,9 +97,9 @@ export async function verifyOnboardingPackedContract({ root, installDirectory, v
       assert.throws(() => assertConfirmedBootstrap({ ...result, grant: { role: 'publisher', scopes } }, plan), { code: 'PACKAGE_INTEGRITY_FAILED' });
     }
     for (const changed of [{ ...plan, role: 'editor' }, { ...plan, agentName: 'tampered' }]) {
-      await assert.rejects(client.bootstrap({ serverBaseUrl: baseUrl, onboardingToken: 'test-only-token', idempotencyKey: 'tampered-publisher-key', serverPlan: changed, serverPlanHash: clientHash(plan) }), (error) => error.code === 'REMOTE_UNAVAILABLE' && /ONBOARDING_PLAN_HASH_MISMATCH/u.test(error.message));
+      await assert.rejects(client.bootstrap({ serverBaseUrl: baseUrl, onboardingToken: 'test-only-token', idempotencyKey: '018f3c72-8c95-7c1d-9b35-63ba0877a4e3', serverPlan: changed, serverPlanHash: clientHash(plan) }), (error) => error.code === 'REMOTE_UNAVAILABLE' && /ONBOARDING_PLAN_HASH_MISMATCH/u.test(error.message));
     }
-    const injected = await fetch(`${baseUrl}/onboard/bootstrap`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'injected-scopes-key' }, body: JSON.stringify({ serverPlan: { ...plan, scopes: publisherScopes }, serverPlanHash: clientHash(plan) }) });
+    const injected = await fetch(`${baseUrl}/onboard/bootstrap`, { method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': '018f3c72-8c95-7c1d-9b35-63ba0877a4f4' }, body: JSON.stringify({ serverPlan: { ...plan, scopes: publisherScopes }, serverPlanHash: clientHash(plan) }) });
     assert.equal(injected.status, 400, 'strict DTO rejects caller supplied scopes');
     const code = await installations.create('owner-test', 'agent-test', 'space-test', 'publisher', version, baseUrl);
     const exchanges = await Promise.all([new AgentWikiClient().exchange(baseUrl, result.installation.code), new AgentWikiClient().exchange(baseUrl, code.code)]);
