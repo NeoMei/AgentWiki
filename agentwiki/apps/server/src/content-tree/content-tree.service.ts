@@ -12,6 +12,7 @@ import {
   validatePortableDirectoryPath,
   validatePortablePath,
 } from '@neomei/agentwiki-sync-protocol';
+import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
 import { supersedePendingPagePublicationsLocked } from '../collaboration-workflows/page-publication-invalidation';
 import {
@@ -2035,6 +2036,9 @@ export class ContentTreeService {
         },
       });
       if (!page) throw new ContentTreeError('CONTENT_TREE_PAGE_NOT_FOUND', 'Page not found');
+      if (input.sameFolderOnly && page.folderId !== input.targetFolderId) {
+        throw new BusinessException('SPACE_ACCESS_DENIED', 'Space administrators may only reorder pages within the same folder');
+      }
       assertExpectedUpdatedAt(input.expectedUpdatedAt, page.updatedAt);
       const target = input.targetFolderId === null
         ? null

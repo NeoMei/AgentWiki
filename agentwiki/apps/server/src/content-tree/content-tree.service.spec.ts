@@ -940,6 +940,18 @@ describe('ContentTreeService lifecycle mutations', () => {
     expect(tx.pagePathAlias.createMany).not.toHaveBeenCalled();
   });
 
+  it('rejects a same-folder-only Page reorder that would change its folder', async () => {
+    const { service, tx, syncPaths } = lifecycleHarness([page]);
+
+    await expect((service as any).moveNode({
+      spaceId: 'space-1', kind: 'page', nodeId: 'page-1',
+      targetFolderId: 'folder-target', expectedTreeRevision: 0n, sameFolderOnly: true,
+      expectedUpdatedAt: now, actor: { userId: 'admin-1' },
+    })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(syncPaths.allocate).not.toHaveBeenCalled();
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
   it('moves a Page with deterministic allocation, old-path aliasing, and direct-sibling ordering', async () => {
     const { service, tx, syncPaths, revisionWriter } = lifecycleHarness([page]);
     syncPaths.allocate.mockResolvedValue({

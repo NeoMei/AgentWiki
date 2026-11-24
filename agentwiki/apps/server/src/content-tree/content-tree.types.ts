@@ -101,6 +101,7 @@ export interface MoveTreeNodeInput {
   nodeId: string;
   targetFolderId: string | null;
   beforeId?: string;
+  sameFolderOnly?: boolean;
   expectedTreeRevision: bigint;
   expectedUpdatedAt: Date;
   actor: ContentTreeActor;

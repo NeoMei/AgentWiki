@@ -34,6 +34,7 @@ import { ContentTreeService, MUTATION_TRANSACTION_TIMEOUT_MS } from './content-t
 
 const READ_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 const EDIT_ROLES = ['owner', 'editor'] as const;
+const PAGE_ORDER_ROLES = ['owner', 'admin', 'editor'] as const;
 const DELETE_ROLES = ['owner', 'editor'] as const;
 
 function decimalTreeRevision<T extends { treeRevision: bigint }>(result: T) {
@@ -86,7 +87,7 @@ export class ContentTreeController {
     @Body() body: CreateFolderDto,
   ) {
     const principal = await this.authorize(request, spaceId, [...EDIT_ROLES], 'pages:write');
-    return decimalTreeRevision(await this.mutateHumanFolder(principal, spaceId,
+    return decimalTreeRevision(await this.mutateHumanTree(principal, spaceId,
       parseTreeRevision(body.expectedTreeRevision), lockedTx => this.tree.createFolder({
       spaceId,
       name: body.name,
@@ -104,7 +105,7 @@ export class ContentTreeController {
     @Body() body: RenameFolderDto,
   ) {
     const principal = await this.authorize(request, spaceId, [...EDIT_ROLES], 'pages:write');
-    return decimalTreeRevision(await this.mutateHumanFolder(principal, spaceId,
+    return decimalTreeRevision(await this.mutateHumanTree(principal, spaceId,
       parseTreeRevision(body.expectedTreeRevision), lockedTx => this.tree.renameFolder({
       spaceId,
       folderId,
@@ -121,18 +122,21 @@ export class ContentTreeController {
     @Param('spaceId') spaceId: string,
     @Body() body: MoveContentTreeNodeDto,
   ) {
-    const principal = await this.authorize(request, spaceId, [...EDIT_ROLES], 'pages:write');
-    return decimalTreeRevision(await this.mutateHumanFolder(principal, spaceId,
-      parseTreeRevision(body.expectedTreeRevision), lockedTx => this.tree.moveNode({
-      spaceId,
-      kind: body.kind,
-      nodeId: body.id,
-      targetFolderId: body.targetParentFolderId,
-      beforeId: body.beforeId,
-      expectedUpdatedAt: new Date(body.expectedUpdatedAt),
-      expectedTreeRevision: parseTreeRevision(body.expectedTreeRevision),
-      actor: { userId: principal.userId },
-    }, lockedTx)));
+    const roles = body.kind === 'page' ? PAGE_ORDER_ROLES : EDIT_ROLES;
+    const principal = await this.authorize(request, spaceId, [...roles], 'pages:write');
+    const expectedTreeRevision = parseTreeRevision(body.expectedTreeRevision);
+    return decimalTreeRevision(await this.mutateHumanTree(principal, spaceId,
+      expectedTreeRevision, (lockedTx, role) => this.tree.moveNode({
+        spaceId,
+        kind: body.kind,
+        nodeId: body.id,
+        targetFolderId: body.targetParentFolderId,
+        beforeId: body.beforeId,
+        expectedUpdatedAt: new Date(body.expectedUpdatedAt),
+        expectedTreeRevision,
+        actor: { userId: principal.userId },
+        ...(role === 'admin' ? { sameFolderOnly: true } : {}),
+      }, lockedTx), roles));
   }
 
   @Get('folders/:folderId/delete-impact')
@@ -153,7 +157,7 @@ export class ContentTreeController {
     @Body() body: DeleteFolderDto,
   ) {
     const principal = await this.authorize(request, spaceId, [...DELETE_ROLES], 'pages:write');
-    return decimalTreeRevision(await this.mutateHumanFolder(principal, spaceId,
+    return decimalTreeRevision(await this.mutateHumanTree(principal, spaceId,
       parseTreeRevision(body.expectedTreeRevision), lockedTx => this.tree.deleteFolder({
       spaceId,
       folderId,
@@ -175,7 +179,7 @@ export class ContentTreeController {
     const strategy = body.mode === 'rename-root'
       ? { kind: body.mode, name: body.name! } as const
       : { kind: body.mode } as const;
-    return decimalTreeRevision(await this.mutateHumanFolder(principal, spaceId,
+    return decimalTreeRevision(await this.mutateHumanTree(principal, spaceId,
       parseTreeRevision(body.expectedTreeRevision), lockedTx => this.tree.restoreDeletionBatch({
       spaceId,
       rootFolderId: folderId,
@@ -187,24 +191,26 @@ export class ContentTreeController {
     }, lockedTx)));
   }
 
-  private async mutateHumanFolder<T>(
+  private async mutateHumanTree<T>(
     principal: Principal,
     spaceId: string,
     expectedTreeRevision: bigint,
-    mutate: (tx: SpaceTreeLockedTransaction) => Promise<T>,
+    mutate: (tx: SpaceTreeLockedTransaction, role: 'owner' | 'admin' | 'editor') => Promise<T>,
+    roles: readonly ('owner' | 'admin' | 'editor')[] = EDIT_ROLES,
   ): Promise<T> {
     return this.prisma.$transaction(async tx => {
       // Preserve the global User -> Space lock order before reading live membership.
       await this.authorization.lockLiveHumanPrincipal(tx, principal);
       const lockedTx = await this.tree.lockFolderMutationSpace(tx, spaceId, expectedTreeRevision);
       const access = await this.authorization.assertLiveHumanSpaceAccess(
-        lockedTx, principal, spaceId, [...EDIT_ROLES],
+        lockedTx, principal, spaceId, [...roles],
       );
-      // Generic human authorization includes Admin; Folder writes deliberately do not.
-      if (access.role !== 'owner' && access.role !== 'editor') {
+      // Generic human authorization expands Editor to Admin. Check the exact
+      // operation policy against the locked membership before changing the tree.
+      if (access.role === 'viewer' || !roles.includes(access.role)) {
         throw new BusinessException('SPACE_ACCESS_DENIED', 'You do not have permission to modify Folders in this space');
       }
-      return mutate(lockedTx);
+      return mutate(lockedTx, access.role);
     }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
   }
 

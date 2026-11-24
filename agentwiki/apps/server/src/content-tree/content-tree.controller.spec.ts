@@ -109,6 +109,7 @@ describe('ContentTreeController HTTP contract', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     authorization.assertSpaceAccess.mockResolvedValue({ role: 'owner' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'owner' });
   });
 
   it('locks User before Space and rechecks live permissions before calling the mutation', async () => {
@@ -167,7 +168,7 @@ describe('ContentTreeController HTTP contract', () => {
     );
   });
 
-  it('uses editor policy for create/rename/move and converts timestamps and revisions at the boundary', async () => {
+  it('uses the action-specific write policy and converts timestamps and revisions at the boundary', async () => {
     tree.createFolder.mockResolvedValue({ folder: { id: 'folder-1' }, treeRevision: 2n, syncRevisionId: 'sync-2' });
     tree.renameFolder.mockResolvedValue({ folder: { id: 'folder-1' }, treeRevision: 3n, syncRevisionId: 'sync-3' });
     tree.moveNode.mockResolvedValue({ node: { id: 'page-1', kind: 'page' }, treeRevision: 4n, syncRevisionId: 'sync-4' });
@@ -190,7 +191,7 @@ describe('ContentTreeController HTTP contract', () => {
       2, request.user, 'space-1', ['owner', 'editor'], 'pages:write',
     );
     expect(authorization.assertSpaceAccess).toHaveBeenNthCalledWith(
-      3, request.user, 'space-1', ['owner', 'editor'], 'pages:write',
+      3, request.user, 'space-1', ['owner', 'admin', 'editor'], 'pages:write',
     );
     expect(tree.createFolder).toHaveBeenCalledWith(expect.objectContaining({
       expectedTreeRevision: 1n, actor: { userId: 'user-1' },
@@ -202,6 +203,43 @@ describe('ContentTreeController HTTP contract', () => {
     expect(tree.moveNode).toHaveBeenCalledWith(expect.objectContaining({
       nodeId: 'page-1', targetFolderId: null, expectedTreeRevision: 3n,
     }), lockedTx);
+  });
+
+  it('allows a Space Admin to reorder a page with the live role and rejects folder moves', async () => {
+    authorization.assertSpaceAccess.mockResolvedValue({ role: 'admin' });
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValue({ role: 'admin' });
+    tree.moveNode.mockResolvedValue({ node: { id: 'page-1', kind: 'page' }, treeRevision: 4n });
+
+    const body = {
+      kind: 'page' as const, id: 'page-1', targetParentFolderId: null,
+      beforeId: 'page-2', expectedUpdatedAt: '2026-08-28T00:00:00.000Z',
+      expectedTreeRevision: '3',
+    };
+    await expect(controller.moveNode(request, 'space-1', body))
+      .resolves.toMatchObject({ treeRevision: '4' });
+    expect(tree.moveNode).toHaveBeenCalledWith(expect.objectContaining({
+      nodeId: 'page-1', beforeId: 'page-2', sameFolderOnly: true,
+    }), lockedTx);
+    await expect(controller.moveNode(request, 'space-1', {
+      ...body, kind: 'folder', id: 'folder-1',
+    })).rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(tree.moveNode).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a Viewer at both initial and live authorization before reordering a page', async () => {
+    const body = {
+      kind: 'page' as const, id: 'page-1', targetParentFolderId: null,
+      expectedUpdatedAt: '2026-08-28T00:00:00.000Z', expectedTreeRevision: '3',
+    };
+    authorization.assertSpaceAccess.mockResolvedValueOnce({ role: 'viewer' });
+    await expect(controller.moveNode(request, 'space-1', body))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+
+    authorization.assertLiveHumanSpaceAccess.mockResolvedValueOnce({ role: 'viewer' });
+    await expect(controller.moveNode(request, 'space-1', body))
+      .rejects.toMatchObject({ businessCode: 'SPACE_ACCESS_DENIED' });
+    expect(tree.moveNode).not.toHaveBeenCalled();
   });
 
   it('allows every reader to preview delete impact and uses the exact Owner/Editor policy for delete/restore', async () => {
