@@ -56,6 +56,15 @@ describe('McpService transport security', () => {
       expect(validate('[[部署指南#回滚|回滚步骤]]')).toBe(true);
       expect(validate({ content: 'markdown' })).toBe(false);
       expect(schema['x-agentwiki']).toMatchObject({ version: '1.0.0', format: 'markdown' });
+      const fromGateway = await client.callTool({
+        name: 'get_writing_schema', arguments: { spaceId: 'gateway-default-space' },
+      });
+      expect(fromGateway.isError).not.toBe(true);
+      expect(fromGateway).toEqual(result);
+      const invalid = await client.callTool({
+        name: 'get_writing_schema', arguments: { unknown: 'unexpected argument' },
+      });
+      expect(invalid.isError).toBe(true);
       expect(schema['x-agentwiki'].syntax.map((rule: { id: string }) => rule.id)).toEqual(expect.arrayContaining([
         'headings', 'task-lists', 'external-links', 'same-space-links', 'cross-space-links', 'heading-links',
         'block-links', 'page-embeds', 'attachment-images', 'https-images', 'tables', 'callouts', 'math', 'mermaid',

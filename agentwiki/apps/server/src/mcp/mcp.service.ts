@@ -192,7 +192,8 @@ export class McpService {
     registerTool('get_writing_schema', {
       description: WIKI_WRITING_TOOL_DESCRIPTION,
       annotations: { readOnlyHint: true },
-      inputSchema: z.object({}).strict(),
+      // Published gateways inject a default Space ID when forwarding remote calls.
+      inputSchema: z.object({ spaceId: z.string().optional() }).strict(),
     }, async () => this.text(WIKI_WRITING_SCHEMA));
     const SPACE_ID = 'The space\'s internal id (CUID), not its display name. Call list_spaces first to discover the spaces you can access and their ids.';
     registerTool('list_spaces', {
