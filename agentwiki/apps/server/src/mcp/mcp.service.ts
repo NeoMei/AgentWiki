@@ -41,6 +41,14 @@ import { BusinessException } from '../core/filters/business-error';
 import { ExecutionService } from '../collaboration-workflows/execution.service';
 import { ContentTreeService } from '../content-tree/content-tree.service';
 import { ContentTreeConflict } from '../content-tree/content-tree.types';
+import {
+  WIKI_WRITING_CONTENT_DESCRIPTION,
+  WIKI_WRITING_INSTRUCTIONS,
+  WIKI_WRITING_SCHEMA,
+  WIKI_WRITING_SCHEMA_MIME,
+  WIKI_WRITING_SCHEMA_URI,
+  WIKI_WRITING_TOOL_DESCRIPTION,
+} from './wiki-writing-schema';
 
 // Keep the protocol SDK behind this adapter boundary. Its deeply recursive
 // schema types otherwise make the application's declaration build prohibitively slow.
@@ -57,7 +65,7 @@ const PROPOSE_PAGE_UPDATE_INPUT = z.object({
   expectedUpdatedAt: MCP_UPDATED_AT,
   expectedTreeRevision: MCP_TREE_REVISION,
   title: z.string().min(1).max(200).regex(NON_BLANK_PAGE_TITLE).optional(),
-  content: z.string().max(200000).optional(),
+  content: z.string().max(200000).describe(WIKI_WRITING_CONTENT_DESCRIPTION).optional(),
   folderId: MCP_ID.nullable().optional(),
 }).strict().refine(
   input => input.title !== undefined || input.content !== undefined || input.folderId !== undefined,
@@ -166,7 +174,10 @@ export class McpService {
     principal: Principal,
     requestContext: { ipAddress?: string; userAgent?: string } = {},
   ): any {
-    const server = new McpServer({ name: 'agentwiki', version: '1.0.0' });
+    const server = new McpServer(
+      { name: 'agentwiki', version: '1.0.0' },
+      { instructions: WIKI_WRITING_INSTRUCTIONS },
+    );
     const registerTool = (name: string, definition: any, handler: (args: any) => Promise<unknown>) =>
       server.registerTool(name, definition, (args: any) =>
         this.executeMcpCall(`tool.${name}`, principal, requestContext, args, () => handler(args)));
@@ -178,6 +189,11 @@ export class McpService {
       if (!this.taskboard) throw new Error('ProjectTaskboardService is required for taskboard MCP tools');
       return this.taskboard;
     });
+    registerTool('get_writing_schema', {
+      description: WIKI_WRITING_TOOL_DESCRIPTION,
+      annotations: { readOnlyHint: true },
+      inputSchema: z.object({}).strict(),
+    }, async () => this.text(WIKI_WRITING_SCHEMA));
     const SPACE_ID = 'The space\'s internal id (CUID), not its display name. Call list_spaces first to discover the spaces you can access and their ids.';
     registerTool('list_spaces', {
       description: 'Discover authorized Spaces with their internal IDs, display names and your role. Call this first to resolve the requested Space; pass its internal spaceId to subsequent reads. A display name is not a spaceId.',
@@ -333,11 +349,11 @@ export class McpService {
       return this.text(await this.knowledge.getGraph(spaceId, principal));
     });
     registerTool('propose_page', {
-      description: 'Propose a page ChangeSet. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
+      description: 'Propose a page ChangeSet. Before composing content, read get_writing_schema (wiki_get_writing_schema in the local gateway) for Markdown syntax. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
       inputSchema: {
         spaceId: z.string().describe(SPACE_ID),
         title: z.string().min(1).regex(NON_BLANK_PAGE_TITLE),
-        content: z.string(),
+        content: z.string().describe(WIKI_WRITING_CONTENT_DESCRIPTION),
         folderId: MCP_ID.nullable().optional().describe('Target Folder in this Space. Omit or use null for the Space root.'),
         expectedTreeRevision: z.string().regex(/^(?:0|[1-9]\d*)$/u),
       },
@@ -351,7 +367,7 @@ export class McpService {
       }));
     });
     registerTool('propose_page_update', {
-      description: 'Propose changes to an existing Page through a ChangeSet. First read get_page for expectedUpdatedAt and list_folders for expectedTreeRevision; both producer baselines are required. Omitted fields stay unchanged; folderId null moves the Page to the Space root. The existing Page format is preserved. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
+      description: 'Propose changes to an existing Page through a ChangeSet. Before composing Markdown content, read get_writing_schema (wiki_get_writing_schema in the local gateway). First read get_page for expectedUpdatedAt and list_folders for expectedTreeRevision; both producer baselines are required. Omitted fields stay unchanged; folderId null moves the Page to the Space root. The existing Page format is preserved. The Space policy controls review: in no-review mode, the bound Space Grant may be Editor or Publisher and can auto-publish within its existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
       inputSchema: PROPOSE_PAGE_UPDATE_INPUT,
     }, async (raw: unknown) => {
       const { spaceId, pageId, expectedUpdatedAt, expectedTreeRevision, ...changes } = PROPOSE_PAGE_UPDATE_INPUT.parse(raw);
@@ -489,6 +505,13 @@ export class McpService {
         await this.collaborationExecution.getAgentRun(input, principal),
       ));
     });
+    server.registerResource('writing-schema', WIKI_WRITING_SCHEMA_URI, {
+      title: WIKI_WRITING_SCHEMA.title,
+      description: WIKI_WRITING_TOOL_DESCRIPTION,
+      mimeType: WIKI_WRITING_SCHEMA_MIME,
+    }, async (uri: URL) => ({
+      contents: [{ uri: uri.href, mimeType: WIKI_WRITING_SCHEMA_MIME, text: JSON.stringify(WIKI_WRITING_SCHEMA) }],
+    }));
     server.registerResource('spaces', 'agentwiki://spaces', {
       title: 'Authorized AgentWiki spaces',
       description: 'Spaces available to the authenticated principal.',

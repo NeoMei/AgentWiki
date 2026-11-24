@@ -55,6 +55,7 @@ describe('Agent connection steps guide',()=>{
     expect(prompt).toContain('onboard_status');
     expect(prompt).toContain('wiki_list_spaces');
     expect(prompt).toContain('wiki_get_page');
+    expect(prompt).toMatch(zh ? /wiki_get_writing_schema\(\{\}\).*写作/ : /wiki_get_writing_schema\(\{\}\).*authoring/);
     expect(prompt).not.toContain('wiki_identity');
     expect(prompt).toContain(zh ? '自动打开' : 'automatically opens');
     expect(prompt).toContain(zh ? '新建对话' : 'new conversation');

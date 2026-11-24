@@ -18,6 +18,8 @@ import { exactRemoteToolSchema } from './collaboration-tools.js';
 import { knowledgeReadToolDefinition } from './knowledge-read-tools.js';
 import type { LocalSyncConnection } from '../config.js';
 
+const WRITING_SCHEMA_TOOL = 'get_writing_schema';
+
 /** Wrap a result as an MCP text content response. */
 function text(result: unknown): { content: Array<{ type: 'text'; text: string }> } {
   return { content: [{ type: 'text', text: formatMcpOutput(result) }] };
@@ -81,7 +83,13 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
     client: context.connection.client,
     serverUrl: context.connection.serverUrl,
   } : undefined;
-  const server = new McpServer({ name: 'agentwiki', version });
+  const remoteTools = await context.bridge?.listTools() ?? [];
+  const writingSchemaName = toRemoteGatewayName(WRITING_SCHEMA_TOOL);
+  const server = new McpServer({ name: 'agentwiki', version }, {
+    instructions: remoteTools.some((tool) => tool.name === WRITING_SCHEMA_TOOL)
+      ? 'Call ' + writingSchemaName + ' with empty arguments before drafting or updating AgentWiki Markdown. Use its examples for internal links, external links, heading and block anchors, images, and embeds.'
+      : undefined,
+  });
   const toolNames: string[] = [];
 
   /* ---- control ---- */
@@ -195,7 +203,6 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
 
   /* ---- remote (wiki_*) ---- */
   if (context.bridge) {
-    const remoteTools = await context.bridge.listTools();
     for (const remote of remoteTools) {
       const gatewayName = publicRemoteName(remote.name);
       if (gatewayName === null) continue;
@@ -203,12 +210,13 @@ export async function createGatewayServer(context: GatewayContext): Promise<Gate
       const exactSchema = upstreamSchema ? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), ...upstreamSchema } : undefined;
       const readDefinition = knowledgeReadToolDefinition(remote.name);
       const pageUpdateDefinition = pageUpdateToolDefinition(remote.name);
+      const writingSchemaInput = remote.name === WRITING_SCHEMA_TOOL ? z.object({}).strict() : undefined;
       toolNames.push(gatewayName);
       server.registerTool(
         gatewayName,
         {
           description: remote.description ?? `Remote AgentWiki tool: ${remote.name}`,
-          inputSchema: pageUpdateDefinition?.inputSchema ?? readDefinition?.inputSchema ?? exactSchema ?? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), __args: z.record(z.unknown()).optional() },
+          inputSchema: writingSchemaInput ?? pageUpdateDefinition?.inputSchema ?? readDefinition?.inputSchema ?? exactSchema ?? { spaceId: z.string().regex(SAFE_SPACE_ID_PATTERN).optional(), __args: z.record(z.unknown()).optional() },
         },
         async (input: unknown) => {
           if (pageUpdateDefinition || readDefinition) {

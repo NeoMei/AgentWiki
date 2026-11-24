@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import { CombinedAuthGuard } from '../core/auth/combined-auth.guard';
 import { McpService } from './mcp.service';
 import { AgentService } from '../core/agent/agent.service';
+import { WIKI_WRITING_SCHEMA_URI } from './wiki-writing-schema';
 
 @Controller()
 @UseGuards(CombinedAuthGuard)
@@ -18,6 +19,7 @@ export class McpController {
   async info(@Req() request: Request) {
     const principal = request.user as any;
     const toolScopes = {
+      get_writing_schema: 'authenticated',
       list_spaces: 'spaces:read',
       get_taskboard: 'Space reader/editor/publisher',
       import_taskboard_plans: 'Space editor/publisher',
@@ -42,7 +44,7 @@ export class McpController {
       endpoint: '/api/mcp',
       authentication: 'Bearer Agent credential or x-api-key',
       tools: Object.entries(toolScopes).map(([name, requiredScope]) => ({ name, requiredScope })),
-      resources: ['agentwiki://spaces', 'agentwiki://pages/{pageId}'],
+      resources: [WIKI_WRITING_SCHEMA_URI, 'agentwiki://spaces', 'agentwiki://pages/{pageId}'],
       note: 'Taskboard imports and status updates write directly with Space editor/publisher access. Knowledge proposals use ChangeSets. The Space policy controls review: in no-review mode, active Editor and Publisher Grants may auto-publish within their existing write scopes; always-review keeps proposals pending for human review. Agents never receive review:decide.',
       access: await this.agents.integrationAccess(
         principal.userId, principal.agentId, principal.credentialId,

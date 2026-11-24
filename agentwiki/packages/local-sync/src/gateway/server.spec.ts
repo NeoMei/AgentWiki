@@ -140,6 +140,32 @@ describe('knowledge read contracts over the SDK', () => {
 });
 
 describe('gateway server tool registration', () => {
+  it.each([true, false])('advertises the writing schema at initialization only when the upstream provides it (%s)', async (available) => {
+    const name = 'wiki_get_writing_schema';
+    const bridge = onlineBridge(available ? ['get_writing_schema'] : []);
+    const { server } = await createGatewayServer({ handlers: mockHandlers(), bridge });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'writing-schema-gateway-test', version: '1' });
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const { tools } = await client.listTools();
+      const tool = tools.find((tool) => tool.name === name);
+      if (available) {
+        expect(client.getInstructions()).toContain(name);
+        expect(tool?.inputSchema.properties).toEqual({});
+        await client.callTool({ name, arguments: {} });
+        expect(bridge.callGatewayTool).toHaveBeenCalledWith(name, {});
+      } else {
+        expect(client.getInstructions()).toBeUndefined();
+        expect(tool).toBeUndefined();
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('rejects unknown scan modes, non-booleans, malformed hashes, and unknown fields before handlers run', () => {
     expect(() => gatewayToolInputSchemas.localScanSources.parse({ sourcePaths: ['.'], analysisMode: 'unknown' })).toThrow();
     expect(() => gatewayToolInputSchemas.knowledgePrepare.parse({ spaceId: 's', sourcePaths: ['.'], sourceType: 'code', confirmedLocalScan: 'true', localScanPlanHash: 'a'.repeat(64) })).toThrow();

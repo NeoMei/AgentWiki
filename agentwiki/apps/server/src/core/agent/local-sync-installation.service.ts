@@ -534,6 +534,7 @@ export class LocalSyncInstallationService {
       'Reload MCP after installation. If reload is unavailable, tools remain missing, or they still show the old Agent/Spaces, fully quit and restart the client, then start a new conversation. Compare onboard_status gateway.connection (connectionId, agentId, client) with the installation result before treating a denied read as missing Space authorization. For older gateways without this field, check the running process and client configuration --connection arguments.',
       'After installation, report the complete doctor output to the user.',
       'Configuration and gateway checks do not verify the host. Use this host\'s agentwiki MCP wiki_* tools to read a known page the user can access and verify its title and content before reporting successful host access.',
+      'After verifying host access, immediately call wiki_get_writing_schema({}) to load the AgentWiki Markdown authoring rules. Follow the returned version and examples when drafting or updating pages. Report if the writing schema could not be loaded.',
       'Installation only configures the unified agentwiki gateway; it does not scan or sync local knowledge.',
     ].join('\n');
   }

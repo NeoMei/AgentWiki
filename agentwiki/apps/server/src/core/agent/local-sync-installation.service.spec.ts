@@ -159,6 +159,7 @@ describe('LocalSyncInstallationService', () => {
     expect(result.instructions).toContain('MCP/tool permissions');
     expect(result.instructions).toContain('restart');
     expect(result.instructions).toContain('known page');
+    expect(result.instructions).toContain('wiki_get_writing_schema({})');
     expect(result.instructions).toContain('doctor');
     expect(result.instructions).not.toContain('--agent auto');
   });

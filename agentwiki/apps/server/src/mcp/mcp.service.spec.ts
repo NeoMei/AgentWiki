@@ -29,6 +29,55 @@ describe('McpService transport security', () => {
     expect(() => (service as any).validateHost({ headers: { host: 'agentwiki.example:443' } })).not.toThrow();
   });
 
+  it('delivers the same versioned Markdown schema through MCP discovery, an argument-free tool and a resource', async () => {
+    const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+    const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
+    const { default: Ajv } = require('ajv');
+    const { default: Ajv2020 } = require('ajv/dist/2020');
+    const server = (service as any).createServer({ userId: 'u', agentId: 'a' });
+    const client = new Client({ name: 'writing-schema-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      expect(client.getInstructions()).toContain('get_writing_schema');
+      const { tools } = await client.listTools();
+      for (const toolName of ['propose_page', 'propose_page_update']) {
+        expect(tools.find((tool: { name: string }) => tool.name === toolName)?.description).toContain('get_writing_schema');
+      }
+      const { resources } = await client.listResources();
+      const uri = 'agentwiki://writing-schema';
+      expect(resources).toContainEqual(expect.objectContaining({ uri, mimeType: 'application/schema+json' }));
+
+      const result = await client.callTool({ name: 'get_writing_schema', arguments: {} });
+      expect(result.isError).not.toBe(true);
+      const schema = JSON.parse(result.content[0].text);
+      const validate = new Ajv2020({ strictSchema: false }).compile(schema);
+      expect(validate('[[部署指南#回滚|回滚步骤]]')).toBe(true);
+      expect(validate({ content: 'markdown' })).toBe(false);
+      expect(schema['x-agentwiki']).toMatchObject({ version: '1.0.0', format: 'markdown' });
+      expect(schema['x-agentwiki'].syntax.map((rule: { id: string }) => rule.id)).toEqual(expect.arrayContaining([
+        'headings', 'task-lists', 'external-links', 'same-space-links', 'cross-space-links', 'heading-links',
+        'block-links', 'page-embeds', 'attachment-images', 'https-images', 'tables', 'callouts', 'math', 'mermaid',
+      ]));
+      expect(schema['x-agentwiki'].syntax).toContainEqual(expect.objectContaining({
+        id: 'block-links',
+        examples: expect.arrayContaining([expect.stringContaining('](#^')]),
+      }));
+      const toolInputValidator = new Ajv({ validateFormats: false });
+      for (const operation of ['create', 'update']) {
+        const example = schema['x-agentwiki'].proposalExamples[operation].http;
+        const tool = tools.find(({ name }: { name: string }) => name === example.name);
+        expect(toolInputValidator.compile(tool.inputSchema)(example.arguments)).toBe(true);
+      }
+      const resource = await client.readResource({ uri });
+      expect(JSON.parse(resource.contents[0].text)).toEqual(schema);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('rejects DNS rebinding through an untrusted Host header', () => {
     expect(() => (service as any).validateHost({ headers: { host: 'attacker.example' } })).toThrow(BadRequestException);
   });

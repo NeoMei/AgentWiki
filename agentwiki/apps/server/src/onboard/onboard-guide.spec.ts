@@ -147,6 +147,8 @@ describe('public Agent connection guide', () => {
     expect(guide).toContain('Top-level fields describe historical installation, not the current identity or connection');
     expect(guide).toMatch(/wiki_list_spaces.*当前空间权限.*wiki_get_page.*已知页面.*标题和内容/);
     expect(guide).toMatch(/wiki_list_spaces.*current Space access.*wiki_get_page.*known page.*title and contents/);
+    expect(guide).toMatch(/wiki_get_writing_schema\(\{\}\).*写作/);
+    expect(guide).toMatch(/wiki_get_writing_schema\(\{\}\).*authoring/);
     expect(guide).not.toContain('wiki_identity');
   });
 });
