@@ -24,6 +24,10 @@ export const NOTE_CREATE_FIELDS = {
   recipientUserIds: z.array(id).max(50).optional(),
 };
 export const NOTE_CREATE = z.object(NOTE_CREATE_FIELDS).strict();
+export const NOTE_REPLY = z.object({
+  clientReplyId: id,
+  body: NOTE_CREATE_FIELDS.body,
+}).strict();
 export const NOTE_UPDATE_FIELDS = {
   expectedUpdatedAt: timestamp,
   body: z.string().trim().min(1).max(10000).optional(),

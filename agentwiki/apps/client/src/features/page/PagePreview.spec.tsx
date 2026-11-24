@@ -1495,6 +1495,42 @@ describe('PagePreview checklist saves', () => {
     expect(within(panel).getByRole('checkbox', { name: 'Open this note' }).closest('li')).toHaveAttribute('data-active-note', 'true');
   });
 
+  it('lets a mentioned viewer reply and resolve a note opened from the notification link', async () => {
+    const current = page({ content: 'Review this passage', capabilities: { canEdit: false } });
+    const target = captureAssistTarget(current.content, 'selection', 0, 6, current.updatedAt)!;
+    const note = {
+      id: 'mentioned-note', spaceId: current.spaceId, pageId: current.id, body: 'Please confirm', target,
+      status: 'pending' as const, author: { type: 'user' as const, id: 'owner', name: 'Owner' }, canEdit: false,
+      canReply: true, canChangeStatus: true, createdAt: current.createdAt, updatedAt: current.updatedAt,
+    };
+    const notePath = `/spaces/${current.spaceId}/pages/${current.id}/notes/${note.id}`;
+    const originalVersion = note.updatedAt;
+    serverNotes = [note];
+    localStorage.setItem('user', JSON.stringify({ id: 'reader' }));
+    localStorage.setItem('token', 'test');
+    vi.mocked(api.get).mockImplementation(async (url) => notesGet(url) ?? ({ data: url === '/assist/sessions' || url.startsWith('/knowledge') ? [] : current }));
+    vi.mocked(api.post).mockImplementation(async (url) => {
+      if (url !== `${notePath}/replies`) throw new Error('Unexpected POST');
+      return { data: { id: 'reply-1', body: 'Confirmed', author: { type: 'user', id: 'reader', name: 'Reader' }, createdAt: current.updatedAt } };
+    });
+    render(<LanguageProvider><AuthProvider><AgentSessionRegistryProvider userId="reader"><MemoryRouter initialEntries={['/pages/page-1?note=mentioned-note']}><Routes><Route path="/pages/:id" element={<PagePreview />} /></Routes></MemoryRouter></AgentSessionRegistryProvider></AuthProvider></LanguageProvider>);
+
+    const panel = within(await screen.findByRole('region', { name: 'Page notes' }));
+    fireEvent.click(panel.getByRole('button', { name: /^Reply$/ }));
+    fireEvent.change(panel.getByRole('textbox', { name: 'Reply to note' }), { target: { value: 'Confirmed' } });
+    fireEvent.click(panel.getByRole('button', { name: 'Send reply' }));
+    expect(within(await panel.findByRole('list', { name: 'Note replies' })).getByText('Confirmed')).toBeVisible();
+    expect(api.post).toHaveBeenCalledWith(`${notePath}/replies`, { clientReplyId: expect.any(String), body: 'Confirmed' }, expect.anything());
+    fireEvent.click(panel.getByRole('button', { name: 'Mark resolved' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(notePath, { expectedUpdatedAt: originalVersion, status: 'resolved' }, expect.anything()));
+    const reopen = await panel.findByRole('button', { name: 'Reopen' });
+    await waitFor(() => expect(reopen).toBeEnabled());
+    const resolvedVersion = note.updatedAt;
+    fireEvent.click(reopen);
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith(notePath, { expectedUpdatedAt: resolvedVersion, status: 'pending' }, expect.anything()));
+    expect(panel.queryByRole('button', { name: 'Delete note' })).not.toBeInTheDocument();
+  });
+
   it('opens a resolved note even when its quoted passage has been removed, and preserves a safe search return', async () => {
     const oldContent = 'Original passage that has now been removed';
     const current = page({ content: 'Replacement page body', capabilities: { canEdit: false } });

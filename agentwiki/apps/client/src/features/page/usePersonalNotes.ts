@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { pageNotesApi } from './pageNotesApi';
 import type { AssistRequest, AssistNotesEvent } from './AgentAssistPanel';
 import { captureAssistTarget, resolveAssistTarget, validateAssistTarget, type AssistTarget, type CandidateEdit } from './assistTargets';
-import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey, savePersonalNotes, transitionPersonalNotes, type PersonalNote, type PersonalNotesScope } from './reviewComments';
+import { addPersonalNote, loadPersonalNotes, notesForDispatch, personalNotesKey, savePersonalNotes, transitionPersonalNotes, type PageNoteReply, type PersonalNote, type PersonalNotesScope } from './reviewComments';
 interface Props { scope: PersonalNotesScope | null; canEdit: boolean; enabled?: boolean; stageForSession?: boolean; source: string; updatedAt?: string; language?: string }
 interface QueueState { loaded: boolean; notes: PersonalNote[]; assistRequest: AssistRequest | null; storageUnavailable: boolean; conflict: boolean; syncing: boolean; canCreate: boolean }
 const empty = (): QueueState => ({ loaded: false, notes: [], assistRequest: null, storageUnavailable: false, conflict: false, syncing: false, canCreate: false });
@@ -21,7 +21,11 @@ const editPassageEvidence = (edit: CandidateEdit, passage: { from: number; to: n
   return !original || edit.after.includes(original) ? 'uncertain' : 'changed';
 };
 
-const accessDenied = (error: unknown) => [401, 403, 404].includes((error as { response?: { status?: number } } | null)?.response?.status ?? 0);
+const responseStatus = (error: unknown) => (error as { response?: { status?: number } } | null)?.response?.status;
+const mergeReplies = (confirmed: PageNoteReply[] = [], received: PageNoteReply[] = []) =>
+  [...new Map([...confirmed, ...received].map(reply => [reply.id, reply])).values()]
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+const accessDenied = (error: unknown) => [401, 403, 404].includes(responseStatus(error) ?? 0);
 const sessionToken = () => { try { return localStorage.getItem('token'); } catch { return null; } };
 interface PendingNoteWrites { userId: string; token: string | null; controller: AbortController; tail: Promise<void>; confirmed: Map<string, PersonalNote> }
 // Explicitly submitted status/deletion writes outlive their view. New views read after this receipt barrier.
@@ -65,11 +69,11 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     pendingWritesRef.current = 0; mutationRef.current++; readSequenceRef.current++;
     commit({ ...empty(), loaded: true, storageUnavailable: true });
   };
-  const publish = (next: QueueState, persist = false) => {
+  const publish = (next: QueueState, persist?: 'author' | 'manual') => {
     if (!actionActive()) return;
     if (!persist || !scope) { commit(next); return; }
-    // Only the authenticated author may change shared state. Other authors remain usable as Agent context.
-    const changes = next.notes.filter((note) => note.canEdit && note.updatedAt && stateRef.current.notes.find((old) => old.id === note.id) !== note);
+    const canWriteStatus = (note: PersonalNote) => note.canEdit || (persist === 'manual' && note.canChangeStatus);
+    const changes = next.notes.filter((note) => canWriteStatus(note) && note.updatedAt && stateRef.current.notes.find((old) => old.id === note.id) !== note);
     const changedIds = new Set(changes.map((note) => note.id));
     next = { ...next, notes: next.notes.map((note) => changedIds.has(note.id) ? note : stateRef.current.notes.find((old) => old.id === note.id) ?? note) };
     if (!changes.length) { commit(next); return; }
@@ -91,29 +95,44 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       if (writeLane.controller.signal.aborted && current()) denyAccess();
       return !writeLane.controller.signal.aborted;
     };
+    let stale = false;
     const queued = writeLane.tail.then(async () => {
       if (!canPersist()) return;
       try {
         for (const desired of changes) {
           if (!canPersist()) return;
           const previous = writeLane.confirmed.get(desired.id);
-          if (!previous?.updatedAt || !previous.canEdit) continue;
-          const saved = await pageNotesApi.update(scope, desired.id, { expectedUpdatedAt: previous.updatedAt, status: desired.status, taskId: desired.taskId ?? null }, writeLane.controller.signal);
+          if (!previous?.updatedAt || !canWriteStatus(previous)) continue;
+          const saved = await pageNotesApi.update(scope, desired.id, {
+            expectedUpdatedAt: previous.updatedAt, status: desired.status,
+            ...(previous.canEdit ? { taskId: desired.taskId ?? null } : {}),
+          }, writeLane.controller.signal);
           if (!canPersist()) return;
           writeLane.confirmed.set(saved.id, saved);
           if (!current()) continue;
-          confirmedRef.current.set(saved.id, saved);
+          const localReplies = confirmedRef.current.get(saved.id)?.replies;
+          const receipt = localReplies?.length ? { ...saved, replies: mergeReplies(localReplies, saved.replies) } : saved;
+          confirmedRef.current.set(saved.id, receipt);
           // Preserve a newer queued transition while advancing its concurrency token.
-          commit({ ...stateRef.current, notes: stateRef.current.notes.map((note) => note.id !== saved.id ? note : note.status === desired.status && note.taskId === desired.taskId ? saved : { ...note, updatedAt: saved.updatedAt }), storageUnavailable: false });
+          const notes = stateRef.current.notes.map(note => {
+            if (note.id !== saved.id) return note;
+            if (note.status === desired.status && note.taskId === desired.taskId) return receipt;
+            return { ...note, replies: receipt.replies, updatedAt: receipt.updatedAt };
+          });
+          commit({ ...stateRef.current, notes, storageUnavailable: false });
         }
       } catch (error) {
         if (!canPersist()) return;
         if (accessDenied(error)) { cancelNoteWrites(key, writeLane); if (current()) denyAccess(); return; }
+        stale = persist === 'manual' && responseStatus(error) === 409;
         if (current()) commit({ ...stateRef.current, storageUnavailable: true, notes: stateRef.current.notes.map((note) => changedIds.has(note.id) ? confirmedRef.current.get(note.id) ?? note : note) });
       } finally { if (current()) { pendingWritesRef.current--; commit({ ...stateRef.current, syncing: pendingWritesRef.current > 0 }); } }
     });
     writeLane.tail = queued;
-    void queued.finally(() => { if (pendingNoteWrites.get(key) === writeLane && writeLane.tail === queued) pendingNoteWrites.delete(key); });
+    void queued.finally(() => {
+      if (pendingNoteWrites.get(key) === writeLane && writeLane.tail === queued) pendingNoteWrites.delete(key);
+      if (stale && current()) void refresh();
+    });
   };
   const refresh = async (migrate = false) => {
     if (!active() || !scope || pendingWritesRef.current) return;
@@ -205,18 +224,45 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
     publish({ ...stateRef.current, assistRequest: request, conflict: false }); return true;
   };
   const onRequestHandled = (id: string) => { if (actionActive() && stateRef.current.assistRequest?.id === id) publish({ ...stateRef.current, assistRequest: null }); };
+  const reply = async (id: string, body: string, clientReplyId: string): Promise<boolean> => {
+    if (!actionActive() || !scope || !stateRef.current.notes.some(note => note.id === id && note.canReply)) return false;
+    const token = sessionToken();
+    const current = () => actionActive() && sessionToken() === token;
+    pendingWritesRef.current++; mutationRef.current++;
+    commit({ ...stateRef.current, syncing: true });
+    let recheckAccess = false;
+    try {
+      const saved = await pageNotesApi.reply(scope, id, { clientReplyId, body }, controllerRef.current.signal);
+      if (!current()) return false;
+      const confirmed = confirmedRef.current.get(id);
+      if (confirmed) confirmedRef.current.set(id, { ...confirmed, replies: mergeReplies(confirmed.replies, [saved]) });
+      commit({ ...stateRef.current, notes: stateRef.current.notes.map(note =>
+        note.id === id ? { ...note, replies: mergeReplies(note.replies, [saved]) } : note,
+      ) });
+      return true;
+    } catch (error) {
+      recheckAccess = accessDenied(error);
+      return false;
+    } finally {
+      if (actionActive()) {
+        pendingWritesRef.current--;
+        commit({ ...stateRef.current, syncing: pendingWritesRef.current > 0 });
+        if (recheckAccess && current()) void refresh();
+      }
+    }
+  };
   const reopen = (id: string) => {
-    if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit)) return;
-    publish({ ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, [id], 'reopen'), assistRequest: null, conflict: false }, true);
+    if (!actionActive() || !stateRef.current.notes.some(note => note.id === id && (note.canEdit || (note.canChangeStatus && note.status === 'resolved')))) return;
+    publish({ ...stateRef.current, notes: transitionPersonalNotes(stateRef.current.notes, [id], 'reopen'), assistRequest: null, conflict: false }, 'manual');
   };
   const resolve = (id: string) => {
-    if (!actionActive() || !stateRef.current.notes.some((note) => note.id === id && note.canEdit && note.status !== 'resolved')) return;
+    if (!actionActive() || !stateRef.current.notes.some(note => note.id === id && (note.canEdit || note.canChangeStatus) && note.status !== 'resolved')) return;
     publish({
       ...stateRef.current,
-      notes: stateRef.current.notes.map((note) => note.id === id && note.canEdit ? { ...note, status: 'resolved' as const } : note),
+      notes: stateRef.current.notes.map(note => note.id === id ? { ...note, status: 'resolved' as const } : note),
       assistRequest: null,
       conflict: false,
-    }, true);
+    }, 'manual');
   };
   const remove = async (id: string): Promise<boolean> => {
     if (!actionActive() || !scope) return false;
@@ -350,9 +396,9 @@ export function usePersonalNotes({ scope, canEdit, enabled = canEdit, stageForSe
       eligibleIds = eligibleIds.filter((id) => { const changes = binding.coverage.get(id); return !binding.uncertain.has(id) && !!changes?.length && changes.every((change) => accepted.includes(change)); });
     }
     const notes = transitionPersonalNotes(stateRef.current.notes, eligibleIds, event.event, event.taskId);
-    publish({ ...stateRef.current, notes }, true);
+    publish({ ...stateRef.current, notes }, 'author');
   };
   const visible = identityRef.current === identity && enabled && scope ? stateRef.current : empty();
   // Refs let sequential callbacks observe synchronous queue changes; setState triggers UI updates.
-  return { ...visible, add, dispatch, resolve, reopen, remove, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
+  return { ...visible, add, dispatch, reply, resolve, reopen, remove, onNotesEvent, onRequestHandled, retrySync: () => refresh(true), identityKey: key };
 }

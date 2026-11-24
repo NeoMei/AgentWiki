@@ -1,15 +1,26 @@
 import api from '../../api/client';
 import type { AssistTarget } from './assistTargets';
-import type { NoteAuthor, NoteRecipient, PersonalNote, PersonalNoteStatus, PersonalNotesScope } from './reviewComments';
+import type { NoteAuthor, NoteRecipient, PageNoteReply, PersonalNote, PersonalNoteStatus, PersonalNotesScope } from './reviewComments';
 
 export interface PageNoteDto {
   id: string; spaceId: string; pageId: string; body: string; target: AssistTarget;
   status: PersonalNoteStatus; taskId?: string; author: NoteAuthor; canEdit: boolean;
-  recipients?: NoteRecipient[];
+  recipients?: NoteRecipient[]; replies?: PageNoteReply[]; canReply?: boolean; canChangeStatus?: boolean;
   createdAt: string; updatedAt: string; clientNoteId?: string;
 }
 export interface CreatePageNote { clientNoteId: string; body: string; target: AssistTarget; status?: PersonalNoteStatus; taskId?: string; recipientUserIds?: string[] }
 const path = (scope: PersonalNotesScope) => `/spaces/${encodeURIComponent(scope.spaceId)}/pages/${encodeURIComponent(scope.pageId)}/notes`;
+const writeConfig = (signal?: AbortSignal) => {
+  const token = localStorage.getItem('token');
+  return {
+    signal, timeout: 15_000,
+    // The async auth interceptor must not lend a queued write to a different session.
+    transformRequest: [(data: unknown) => {
+      if (localStorage.getItem('token') !== token) throw new Error('Page note session changed');
+      return JSON.stringify(data);
+    }],
+  };
+};
 export function fromPageNote(note: PageNoteDto, scope: PersonalNotesScope): PersonalNote {
   if (!note || note.spaceId !== scope.spaceId || note.pageId !== scope.pageId || !note.author?.id || !['user', 'agent'].includes(note.author.type)) throw new Error('Invalid page note scope');
   return { ...note, recipients: note.recipients ?? [], schemaVersion: 1, userId: note.author.type === 'user' ? note.author.id : `agent:${note.author.id}` };
@@ -22,30 +33,14 @@ export const pageNotesApi = {
   async create(scope: PersonalNotesScope, input: CreatePageNote, signal?: AbortSignal) {
     return fromPageNote((await api.post<PageNoteDto>(path(scope), input, { signal })).data, scope);
   },
+  async reply(scope: PersonalNotesScope, id: string, input: { clientReplyId: string; body: string }, signal?: AbortSignal) {
+    return (await api.post<PageNoteReply>(`${path(scope)}/${encodeURIComponent(id)}/replies`, input, writeConfig(signal))).data;
+  },
   async update(scope: PersonalNotesScope, id: string, input: { expectedUpdatedAt: string; body?: string; status?: PersonalNoteStatus; taskId?: string | null }, signal?: AbortSignal) {
-    const token = localStorage.getItem('token');
-    return fromPageNote((await api.patch<PageNoteDto>(`${path(scope)}/${encodeURIComponent(id)}`, input, {
-      signal, timeout: 15_000,
-      // Axios applies its auth interceptor asynchronously. Never let a queued old-author write
-      // borrow the token of an account that signed in before the request reaches its adapter.
-      transformRequest: [(data: unknown) => {
-        if (localStorage.getItem('token') !== token) throw new Error('Page note session changed');
-        return JSON.stringify(data);
-      }],
-    })).data, scope);
+    return fromPageNote((await api.patch<PageNoteDto>(`${path(scope)}/${encodeURIComponent(id)}`, input, writeConfig(signal))).data, scope);
   },
   async remove(scope: PersonalNotesScope, id: string, input: { expectedUpdatedAt: string }, signal?: AbortSignal) {
-    const token = localStorage.getItem('token');
-    const transformRequest = [(data: unknown) => {
-      if (localStorage.getItem('token') !== token) throw new Error('Page note session changed');
-      return JSON.stringify(data);
-    }];
-    await api.delete(`${path(scope)}/${encodeURIComponent(id)}`, {
-      data: input,
-      signal,
-      timeout: 15_000,
-      transformRequest,
-    });
+    await api.delete(`${path(scope)}/${encodeURIComponent(id)}`, { ...writeConfig(signal), data: input });
     return { deleted: true as const };
   },
 };

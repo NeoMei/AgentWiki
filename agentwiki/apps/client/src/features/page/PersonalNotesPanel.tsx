@@ -11,6 +11,7 @@ interface Props {
   onDispatch: (ids: string[]) => void;
   onResolve: (id: string) => void;
   onReopen: (id: string) => void;
+  onReply?: (id: string, body: string, clientReplyId: string) => Promise<boolean>;
   onDelete?: (id: string) => void;
   activeNoteId?: string | null;
   onLocate?: (id: string) => boolean | void;
@@ -18,7 +19,7 @@ interface Props {
 }
 type NoteFilter = 'all' | 'open' | 'resolved';
 /** Controlled queue: parent persists notes and transitions after task responses, acceptance, or author action. */
-export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onResolve, onReopen, onDelete, activeNoteId, onLocate, onClearActive }: Props) {
+export function PersonalNotesPanel({ stageForSession = false, source, notes, disabled, storageUnavailable, syncing, identityKey, onRetrySync, onDispatch, onResolve, onReopen, onReply, onDelete, activeNoteId, onLocate, onClearActive }: Props) {
   const { language } = useLanguage(); const zh = language === 'zh-CN';
   const [selected, setSelected] = useState<string[]>([]);
   const [filter, setFilter] = useState<NoteFilter>('open');
@@ -61,7 +62,7 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
     <header className="space-y-1.5">
       <div className="flex items-center justify-between gap-2"><h3 className="font-semibold tracking-wide text-gray-700">{zh ? '页面笔记' : 'Page notes'}</h3><span className="rounded-lg bg-gray-100 px-2 py-1 text-xs tabular-nums text-gray-500">{notes.length}</span></div>
       <p className="text-xs text-gray-500">{zh ? '保存在服务器 · 有权限成员可见' : 'Saved on the server · Visible to page members'}</p>
-      <p className="text-[11px] leading-relaxed text-gray-400">{zh ? '有页面访问权限的用户和 Agent 均可查看。笔记按作者区分，仅作者可修改。' : 'Users and Agents with page access can read these notes. Each note identifies its author; only the author can change it.'}</p>
+      <p className="text-[11px] leading-relaxed text-gray-400">{zh ? '有页面访问权限的用户和 Agent 均可查看。笔记按作者区分，作者可修改笔记，被 @ 的成员可回复和处理笔记。' : 'Users and Agents with page access can read these notes. Each note identifies its author; authors can edit and mentioned members can reply and manage the note’s status.'}</p>
     </header>
     {storageUnavailable ? <div role="status" className="space-y-1 text-xs text-amber-800"><p>{zh ? '部分笔记尚未同步到服务器，草稿已保留。' : 'Some notes have not synced to the server. Drafts are retained.'}</p>{onRetrySync ? <button type="button" disabled={syncing} onClick={onRetrySync} className="underline">{zh ? '重试同步' : 'Retry sync'}</button> : null}</div> : null}
     <div role="group" aria-label={zh ? '筛选笔记' : 'Filter notes'} className="flex rounded-lg bg-gray-100 p-1">
@@ -76,6 +77,7 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
     </div>
     {visible.length === 0 ? <p className="rounded-lg border border-dashed border-gray-200 p-3 text-gray-500">{empty}</p> : null}
     <ul className="space-y-3">{visible.map(({ note, found }) => {
+      const canChangeStatus = note.canEdit || note.canChangeStatus;
       return <li key={note.id} ref={(element) => { if (element) cardRefs.current.set(note.id, element); else cardRefs.current.delete(note.id); }} data-active-note={note.id === activeNoteId ? 'true' : undefined} className={`space-y-2 rounded-xl border p-3 transition-colors ${note.id === activeNoteId ? 'border-amber-400 bg-amber-50 ring-1 ring-amber-200' : 'border-gray-200 bg-white'}`}>
         <div className="flex min-w-0 items-center gap-2"><input type="checkbox" aria-label={note.body} checked={selectedEligible.includes(note.id)} disabled={disabled || note.status !== 'pending' || note.syncState === 'unsynced' || !found} onChange={(e) => { if (!disabled && eligibleIds.includes(note.id)) setSelected((ids) => e.target.checked ? [...ids.filter((id) => eligibleIds.includes(id) && id !== note.id), note.id] : ids.filter((id) => id !== note.id)); }} className="shrink-0 accent-blue-500" />
           <span className="mr-auto rounded-md bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">{labels[note.status]}</span>
@@ -88,10 +90,70 @@ export function PersonalNotesPanel({ stageForSession = false, source, notes, dis
         {!found ? <p className="text-amber-800">{zh ? '原文已变动或定位不唯一' : 'Original passage changed or anchor is ambiguous'}</p> : null}
         {locationUnavailableId === note.id ? <p role="status" className="text-xs text-amber-800">{zh ? '此片段无法在当前视图定位，请查看原始 Markdown。' : 'This passage cannot be located in this view. Check the original Markdown.'}</p> : null}
         {note.syncState === 'unsynced' ? <p className="text-xs text-amber-700">{zh ? '尚未同步' : 'Not synced'}</p> : null}
-        {note.status !== 'resolved' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onResolve(note.id)} className="h-8 rounded-lg border border-blue-200 px-3 text-blue-700">{zh ? '标记已解决' : 'Mark resolved'}</button> : null}
-        {note.status !== 'pending' && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3">{zh ? '重新打开' : 'Reopen'}</button> : null}
-        {onDelete && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onDelete(note.id)} className="h-8 rounded-lg border border-red-200 px-3 text-red-700">{zh ? '删除笔记' : 'Delete note'}</button> : null}
+        {!!note.replies?.length && <ol aria-label={zh ? '笔记回复' : 'Note replies'} className="space-y-2 border-l-2 border-gray-200 pl-3">
+          {note.replies.map(reply => <li key={reply.id}>
+            <PersonalNoteAuthor userId={reply.author.id} author={reply.author} language={language} />
+            <p className="whitespace-pre-wrap text-xs leading-relaxed text-gray-800 [overflow-wrap:anywhere]">{reply.body}</p>
+          </li>)}
+        </ol>}
+        <div className="flex flex-wrap items-center gap-2">
+          {note.canReply && onReply ? <NoteReplyComposer key={identityKey} zh={zh} disabled={disabled} onSend={(body, clientReplyId) => onReply(note.id, body, clientReplyId)} /> : null}
+          {note.status !== 'resolved' && canChangeStatus && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled || syncing} onClick={() => onResolve(note.id)} className="h-8 rounded-lg border border-blue-200 px-3 text-blue-700 disabled:opacity-40">{zh ? '标记已解决' : 'Mark resolved'}</button> : null}
+          {(note.status === 'resolved' ? canChangeStatus : note.status !== 'pending' && note.canEdit) && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled || syncing} onClick={() => onReopen(note.id)} className="h-8 rounded-lg border border-gray-200 px-3 disabled:opacity-40">{zh ? '重新打开' : 'Reopen'}</button> : null}
+          {onDelete && note.canEdit === true && note.syncState !== 'unsynced' ? <button type="button" disabled={disabled} onClick={() => onDelete(note.id)} className="h-8 rounded-lg border border-red-200 px-3 text-red-700">{zh ? '删除笔记' : 'Delete note'}</button> : null}
+        </div>
       </li>;
     })}</ul>
   </section>;
+}
+
+function NoteReplyComposer({ zh, disabled, onSend }: {
+  zh: boolean;
+  disabled?: boolean;
+  onSend: (body: string, clientReplyId: string) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const request = useRef<{ body: string; id: string } | null>(null);
+  const body = draft.trim();
+
+  if (!open) return <button type="button" disabled={disabled} onClick={() => setOpen(true)} className="h-8 rounded-lg border border-gray-200 px-3 disabled:opacity-40">{zh ? '回复' : 'Reply'}</button>;
+
+  return <form className="w-full space-y-2" onSubmit={async event => {
+    event.preventDefault();
+    if (!body || disabled || sending) return;
+    if (request.current?.body !== body) request.current = { body, id: crypto.randomUUID() };
+    setSending(true);
+    setFailed(false);
+    try {
+      if (await onSend(body, request.current.id)) {
+        request.current = null;
+        setDraft('');
+        setOpen(false);
+      } else setFailed(true);
+    } finally {
+      setSending(false);
+    }
+  }}>
+    <textarea
+      aria-label={zh ? '回复笔记' : 'Reply to note'}
+      placeholder={zh ? '写下你的回复…' : 'Write a reply…'}
+      autoFocus
+      rows={3}
+      maxLength={10000}
+      value={draft}
+      disabled={disabled || sending}
+      onChange={event => setDraft(event.target.value)}
+      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-blue-400 focus:outline-none"
+    />
+    {failed ? <p role="alert" className="text-xs text-red-700">{zh ? '回复发送失败，请重试。' : 'Could not send the reply. Try again.'}</p> : null}
+    <div className="flex flex-wrap gap-2">
+      <button type="submit" disabled={disabled || sending || !body} className="h-8 rounded-lg bg-gray-900 px-3 text-white disabled:opacity-40">
+        {sending ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送回复' : 'Send reply')}
+      </button>
+      <button type="button" disabled={sending} onClick={() => setOpen(false)} className="h-8 rounded-lg border border-gray-200 px-3 disabled:opacity-40">{zh ? '取消' : 'Cancel'}</button>
+    </div>
+  </form>;
 }

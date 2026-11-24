@@ -19,6 +19,11 @@ export class PageNoteController {
     return this.notes.create(req.user as Principal, spaceId, pageId, body);
   }
 
+  @Post(':noteId/replies')
+  reply(@Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Param('noteId') noteId: string, @Body() body: unknown, @Req() req: Request) {
+    return this.notes.reply(req.user as Principal, spaceId, pageId, noteId, body);
+  }
+
   @Patch(':noteId')
   update(@Param('spaceId') spaceId: string, @Param('pageId') pageId: string, @Param('noteId') noteId: string, @Body() body: unknown, @Req() req: Request) {
     return this.notes.update(req.user as Principal, spaceId, pageId, noteId, body);

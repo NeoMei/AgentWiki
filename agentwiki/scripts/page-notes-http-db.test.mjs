@@ -69,7 +69,7 @@ test('shared page notes persist across human and MCP identities with live page a
       const payload = { clientNoteId: randomUUID(), body: '补充可验证的验收条件', target };
       let own, viewerNote, agentNote;
       await t.test('one authoritative note is visible to another member and idempotent migration does not duplicate it', async () => {
-        own = await request(path, { token: owner.token, method: 'POST', body: payload });
+        own = await request(path, { token: owner.token, method: 'POST', body: { ...payload, recipientUserIds: [reader.id] } });
         assert.deepEqual(own.author, { type: 'user', id: owner.id, name: '笔记作者' });
         const retry = await request(path, { token: owner.token, method: 'POST', body: payload });
         assert.equal(retry.id, own.id);
@@ -80,6 +80,40 @@ test('shared page notes persist across human and MCP identities with live page a
         viewerNote = await request(path, { token: reader.token, method: 'POST', body: { ...payload, clientNoteId: randomUUID(), body: '只读成员也可以参与批注' } });
         assert.equal(viewerNote.author.id, reader.id);
         assert.equal((await request(path, { token: owner.token })).notes.length, 2);
+      });
+      await t.test('an @ notification leads to a reply thread and permits the mentioned viewer to resolve and reopen', async () => {
+        const notification = (await request('/notifications', { token: reader.token })).notifications[0];
+        assert.equal(notification.href, `/pages/${page.id}?note=${own.id}`);
+        const replyPath = `${path}/${own.id}/replies`;
+        const draft = { clientReplyId: randomUUID(), body: '验收条件已确认' };
+        const [reply, retry] = await Promise.all([
+          request(replyPath, { token: reader.token, method: 'POST', body: draft }),
+          request(replyPath, { token: reader.token, method: 'POST', body: draft }),
+        ]);
+        assert.deepEqual(retry, reply);
+        assert.deepEqual(reply.author, { type: 'user', id: reader.id, name: '评审成员' });
+        assert.equal(reply.body, draft.body);
+        const authorView = (await request(path, { token: owner.token })).notes.find(note => note.id === own.id);
+        assert.deepEqual(authorView.replies, [reply]);
+        const followUp = await request(replyPath, { token: owner.token, method: 'POST', body: { ...draft, body: '收到，谢谢' } });
+        assert.notEqual(followUp.id, reply.id);
+        await request(replyPath, { token: outsider.token, method: 'POST', body: draft, expected: [403, 404] });
+        await request(`${path}/${viewerNote.id}/replies`, { token: owner.token, method: 'POST', body: draft, expected: [403] });
+        const mentionView = (await request(path, { token: reader.token })).notes.find(note => note.id === own.id);
+        assert.equal(mentionView.canReply, true);
+        assert.equal(mentionView.canChangeStatus, true);
+        assert.equal(mentionView.canEdit, false);
+        assert.equal(mentionView.replies.length, 2);
+        const patch = (expectedUpdatedAt, status, expected) => request(`${path}/${own.id}`, {
+          token: reader.token, method: 'PATCH', body: { expectedUpdatedAt, status }, expected,
+        });
+        const resolved = await patch(own.updatedAt, 'resolved');
+        assert.equal(resolved.status, 'resolved');
+        assert.equal(resolved.recipients[0].userId, reader.id);
+        assert.deepEqual(resolved.replies, mentionView.replies);
+        await patch(own.updatedAt, 'pending', [409]);
+        own = await patch(resolved.updatedAt, 'pending');
+        assert.equal(own.status, 'pending');
       });
       await t.test('ownership, stale edits, spoofed authors and inaccessible pages are enforced by HTTP', async () => {
         await request(`${path}/${own.id}`, { token: reader.token, method: 'PATCH', body: { body: '冒用作者', expectedUpdatedAt: own.updatedAt }, expected: [403] });
@@ -139,6 +173,8 @@ test('shared page notes persist across human and MCP identities with live page a
         assert.equal(denied.isError, true);
         await db.spaceMember.delete({ where: { userId_spaceId: { userId: reader.id, spaceId: space.id } } });
         await request(path, { token: reader.token, expected: [403, 404] });
+        await request(`${path}/${own.id}/replies`, { token: reader.token, method: 'POST', body: { clientReplyId: randomUUID(), body: 'cannot send' }, expected: [403, 404] });
+        await request(`${path}/${own.id}`, { token: reader.token, method: 'PATCH', body: { expectedUpdatedAt: own.updatedAt, status: 'resolved' }, expected: [403, 404] });
         await db.agentGrant.delete({ where: { agentId_spaceId: { agentId: agent.id, spaceId: space.id } } });
         assert.equal((await client.callTool({ name: 'list_page_notes', arguments: { spaceId: space.id, pageId: page.id } })).isError, true);
       });

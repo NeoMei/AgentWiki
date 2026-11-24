@@ -25,6 +25,31 @@ describe('shared page notes', () => {
     ]);
   });
 
+  it('allows a mentioned human member to resolve and reopen, while protecting the original note', async () => {
+    const s = setupNotes();
+    const note = await create(s);
+    const recipient = { userId: 'user-2' };
+    s.rows[0].recipients = [{ userId: recipient.userId, user: { id: recipient.userId, name: 'Bob', email: 'bob@example.test' } }];
+    const update = (principal: typeof human, data: Record<string, unknown>) =>
+      s.service.update(principal, 'space-1', 'page-1', note.id, { expectedUpdatedAt: note.updatedAt, ...data });
+    await expect(update({ userId: 'user-3' }, { status: 'resolved' })).rejects.toThrow();
+    await expect(update(recipient, { status: 'resolved', body: 'Replace note' })).rejects.toThrow();
+    await expect(update(recipient, { status: 'dispatched', taskId: 'another-task' })).rejects.toThrow();
+    await expect(update({ ...agent, userId: recipient.userId }, { status: 'resolved' })).rejects.toThrow();
+    await expect(s.service.remove(recipient, 'space-1', 'page-1', note.id, { expectedUpdatedAt: note.updatedAt })).rejects.toThrow();
+
+    const resolved = await update(recipient, { status: 'resolved' });
+    expect(resolved).toMatchObject({ status: 'resolved', body: input.body, canEdit: false, canChangeStatus: true });
+    await expect(update(recipient, { status: 'resolved' })).rejects.toThrow('changed');
+    const reopened = await update(recipient, { expectedUpdatedAt: resolved.updatedAt, status: 'pending' });
+    expect(reopened).toMatchObject({ status: 'pending', body: input.body });
+    const dispatched = await update(human, { expectedUpdatedAt: reopened.updatedAt, status: 'dispatched', taskId: 'task-1' });
+    await expect(update(recipient, { expectedUpdatedAt: reopened.updatedAt, status: 'resolved' })).rejects.toThrow('changed');
+    await expect(update(recipient, { expectedUpdatedAt: dispatched.updatedAt, status: 'resolved' })).rejects.toThrow('Agent workflow');
+    s.access.member = false;
+    await expect(update(recipient, { expectedUpdatedAt: dispatched.updatedAt, status: 'resolved' })).rejects.toThrow();
+  });
+
   it('uses Agent identity independently from its human owner and preserves target context', async () => {
     const s = setupNotes();
     const note = await create(s, agent);

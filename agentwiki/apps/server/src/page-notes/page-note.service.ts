@@ -1,17 +1,31 @@
 import { Injectable, Optional } from '@nestjs/common';
-import { PageNote, Prisma } from '@prisma/client';
+import { PageNote, PageNoteReply, Prisma } from '@prisma/client';
 import { AuthorizationService, Principal, SpaceRole } from '../core/authorization/authorization.service';
 import { BusinessException } from '../core/filters/business-error';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import type { PageNoteRecipientSummary } from '../notifications/notification.schema';
-import { NOTE_CREATE, NOTE_DELETE, NOTE_ID, NOTE_ROUTE, NOTE_UPDATE, parseNoteInput, parseNoteDiscoveryQuery } from './page-note.schema';
+import { NOTE_CREATE, NOTE_DELETE, NOTE_ID, NOTE_REPLY, NOTE_ROUTE, NOTE_UPDATE, parseNoteInput, parseNoteDiscoveryQuery } from './page-note.schema';
 import { decodeNoteDiscoveryCursor, encodeNoteDiscoveryCursor, noteDiscoveryScope } from './page-note-discovery.cursor';
 
 const READ_ROLES: SpaceRole[] = ['owner', 'admin', 'editor', 'viewer'];
 const identity = (principal: Principal) => principal.agentId
   ? { authorType: 'agent', authorId: principal.agentId }
   : { authorType: 'user', authorId: principal.userId };
+const noteRelations = {
+  recipients: { orderBy: { createdAt: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } },
+  replies: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+} satisfies Prisma.PageNoteInclude;
+
+const isAuthor = (note: PageNote, principal: Principal) => {
+  const author = identity(principal);
+  return note.authorType === author.authorType && note.authorId === author.authorId;
+};
+const isRecipient = (principal: Principal, recipients?: ReadonlyArray<{ userId: string }>) =>
+  !principal.agentId && !!recipients?.some(recipient => recipient.userId === principal.userId);
+const canRecipientChangeStatus = (note: PageNote) =>
+  note.status === 'pending' || (note.status === 'resolved' && !note.taskId);
+
 interface DiscoveryRow extends PageNote {
   pageTitle: string;
   folderPath: string | null;
@@ -37,7 +51,7 @@ export class PageNoteService {
     }
     const rows = await this.prisma.pageNote.findMany({
       where: { spaceId, pageId, deletedAt: null }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      include: { recipients: { orderBy: { createdAt: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } },
+      include: noteRelations,
     });
     return { notes: rows.map(note => this.project(note, principal, canCreate)), canCreate };
   }
@@ -151,6 +165,7 @@ export class PageNoteService {
       const author = identity(principal);
       const existing = await db.pageNote.findUnique({
         where: { pageId_authorType_authorId_clientNoteId: { pageId, ...author, clientNoteId: input.clientNoteId } },
+        include: noteRelations,
       });
       // A retry never resurrects or overwrites a subsequently edited/deleted note.
       if (existing) {
@@ -184,13 +199,46 @@ export class PageNoteService {
     });
   }
 
+  async reply(principal: Principal, spaceId: string, pageId: string, noteId: string, raw: unknown) {
+    const input = parseNoteInput(NOTE_REPLY, raw);
+    parseNoteInput(NOTE_ID, noteId);
+    if (principal.agentId) throw new BusinessException('SPACE_ACCESS_DENIED', 'Only human note participants can reply');
+    await this.assertRead(principal, spaceId, pageId);
+    return this.prisma.$transaction(async db => {
+      await this.lockWrite(db, principal, spaceId, pageId);
+      const note = await this.findNote(db, spaceId, pageId, noteId);
+      if (!isAuthor(note, principal) && !isRecipient(principal, note.recipients)) {
+        throw new BusinessException('SPACE_ACCESS_DENIED', 'Only the author or a mentioned member can reply');
+      }
+      const authorId = principal.userId;
+      const key = { noteId, authorId, clientReplyId: input.clientReplyId };
+      const existing = await db.pageNoteReply.findUnique({ where: { noteId_authorId_clientReplyId: key } });
+      if (existing) return this.projectReply(existing);
+      const account = await db.user.findUnique({ where: { id: authorId }, select: { name: true } });
+      if (!account) throw new BusinessException('SPACE_ACCESS_DENIED');
+      const reply = await db.pageNoteReply.create({ data: { ...key, body: input.body, authorName: account.name?.trim() || '成员' } });
+      return this.projectReply(reply);
+    });
+  }
+
   async update(principal: Principal, spaceId: string, pageId: string, noteId: string, raw: unknown) {
     const input = parseNoteInput(NOTE_UPDATE, raw);
     parseNoteInput(NOTE_ID, noteId);
     await this.assertRead(principal, spaceId, pageId);
     return this.prisma.$transaction(async db => {
       await this.lockWrite(db, principal, spaceId, pageId);
-      const note = await this.ownNote(db, principal, spaceId, pageId, noteId, input.expectedUpdatedAt);
+      const note = await this.findNote(db, spaceId, pageId, noteId);
+      const recipientStatusOnly = isRecipient(principal, note.recipients)
+        && (input.status === 'pending' || input.status === 'resolved')
+        && input.body === undefined && input.target === undefined && input.taskId === undefined;
+      const own = isAuthor(note, principal);
+      if (!own && !recipientStatusOnly) {
+        throw new BusinessException('SPACE_ACCESS_DENIED', 'Only the note author can change this note');
+      }
+      this.assertVersion(note, input.expectedUpdatedAt);
+      if (!own && !canRecipientChangeStatus(note)) {
+        throw new BusinessException('SPACE_ACCESS_DENIED', 'The author manages this note’s Agent workflow');
+      }
       // Advance even within the same millisecond so the optimistic token never repeats.
       const updatedAt = new Date(Math.max(Date.now(), note.updatedAt.getTime() + 1));
       const changed = await db.pageNote.update({ where: { id: note.id }, data: {
@@ -199,7 +247,7 @@ export class PageNoteService {
         ...(input.status === undefined ? {} : { status: input.status }),
         ...((input.status ?? note.status) === 'pending' ? { taskId: null } : input.taskId === undefined ? {} : { taskId: input.taskId }),
         updatedAt,
-      } });
+      }, include: noteRelations });
       return this.project(changed, principal, true);
     });
   }
@@ -210,7 +258,11 @@ export class PageNoteService {
     await this.assertRead(principal, spaceId, pageId);
     return this.prisma.$transaction(async db => {
       await this.lockWrite(db, principal, spaceId, pageId);
-      const note = await this.ownNote(db, principal, spaceId, pageId, noteId, input.expectedUpdatedAt);
+      const note = await this.findNote(db, spaceId, pageId, noteId);
+      if (!isAuthor(note, principal)) {
+        throw new BusinessException('SPACE_ACCESS_DENIED', 'Only the note author can change this note');
+      }
+      this.assertVersion(note, input.expectedUpdatedAt);
       await db.pageNote.update({ where: { id: note.id }, data: { deletedAt: new Date(), updatedAt: new Date(Math.max(Date.now(), note.updatedAt.getTime() + 1)) } });
       return { deleted: true as const };
     });
@@ -247,33 +299,52 @@ export class PageNoteService {
     if (pages.length !== 1) throw new BusinessException('RESOURCE_NOT_FOUND', 'Page not found');
   }
 
-  private async ownNote(db: Prisma.TransactionClient, principal: Principal, spaceId: string, pageId: string, noteId: string, expectedUpdatedAt: string) {
-    const note = await db.pageNote.findFirst({ where: { id: noteId, spaceId, pageId, deletedAt: null } });
+  private async findNote(db: Prisma.TransactionClient, spaceId: string, pageId: string, noteId: string) {
+    const note = await db.pageNote.findFirst({
+      where: { id: noteId, spaceId, pageId, deletedAt: null },
+      include: { recipients: { select: { userId: true } } },
+    });
     if (!note) throw new BusinessException('RESOURCE_NOT_FOUND', 'Page note not found');
-    const author = identity(principal);
-    if (note.authorType !== author.authorType || note.authorId !== author.authorId) {
-      throw new BusinessException('SPACE_ACCESS_DENIED', 'Only the note author can change this note');
-    }
-    if (note.updatedAt.getTime() !== Date.parse(expectedUpdatedAt)) {
-      throw new BusinessException('RESOURCE_CONFLICT', 'The note changed; reload before editing');
-    }
     return note;
   }
 
-  private project(note: PageNote & { recipients?: Array<{ userId: string; user: { id: string; name: string | null; email: string } }> }, principal: Principal, canWrite: boolean, createdRecipients?: PageNoteRecipientSummary[]) {
-    const author = identity(principal);
+  private assertVersion(note: PageNote, expectedUpdatedAt: string) {
+    if (note.updatedAt.getTime() !== Date.parse(expectedUpdatedAt)) {
+      throw new BusinessException('RESOURCE_CONFLICT', 'The note changed; reload before editing');
+    }
+  }
+
+  private projectReply(reply: PageNoteReply) {
+    return {
+      id: reply.id, body: reply.body, createdAt: reply.createdAt.toISOString(),
+      author: { type: 'user' as const, id: reply.authorId, name: reply.authorName },
+    };
+  }
+
+  private project(
+    note: PageNote & {
+      recipients?: Array<{ userId: string; user: { id: string; name: string | null; email: string } }>;
+      replies?: PageNoteReply[];
+    },
+    principal: Principal, canWrite: boolean, createdRecipients?: PageNoteRecipientSummary[],
+  ) {
+    const own = isAuthor(note, principal);
+    const recipient = isRecipient(principal, createdRecipients ?? note.recipients);
     return {
       id: note.id, spaceId: note.spaceId, pageId: note.pageId, body: note.body, target: note.target,
       status: note.status, ...(note.taskId ? { taskId: note.taskId } : {}),
       author: { type: note.authorType, id: note.authorId, name: note.authorName },
       createdAt: note.createdAt.toISOString(), updatedAt: note.updatedAt.toISOString(),
-      canEdit: canWrite && note.authorType === author.authorType && note.authorId === author.authorId,
+      canEdit: canWrite && own,
+      canReply: canWrite && !principal.agentId && (own || recipient),
+      canChangeStatus: canWrite && (own || (recipient && canRecipientChangeStatus(note))),
+      ...(note.replies ? { replies: note.replies.map(reply => this.projectReply(reply)) } : {}),
       recipients: createdRecipients ?? note.recipients?.map(recipient => ({
         userId: recipient.user.id,
         name: recipient.user.name?.trim() || recipient.user.email,
         email: recipient.user.email,
       })) ?? [],
-      ...(note.authorType === author.authorType && note.authorId === author.authorId ? { clientNoteId: note.clientNoteId } : {}),
+      ...(own ? { clientNoteId: note.clientNoteId } : {}),
     };
   }
 }

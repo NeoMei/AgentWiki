@@ -2020,6 +2020,7 @@ model PageNote {
   updatedAt    DateTime @updatedAt
   deletedAt     DateTime?
   recipients    PageNoteRecipient[]
+  replies       PageNoteReply[]
   notifications UserNotification[]
 
   @@unique([pageId, authorType, authorId, clientNoteId])
@@ -2028,6 +2029,21 @@ model PageNote {
   @@index([deletedAt, updatedAt(sort: Desc), id(sort: Desc)], map: "PageNote_global_discovery_idx")
 }
 
+
+// Replies retain the authenticated human author's identity as a snapshot.
+model PageNoteReply {
+  id            String   @id @default(cuid())
+  noteId        String
+  note          PageNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  authorId      String
+  authorName    String
+  clientReplyId String
+  body          String
+  createdAt     DateTime @default(now())
+
+  @@unique([noteId, authorId, clientReplyId])
+  @@index([noteId, createdAt, id])
+}
 
 model PageNoteRecipient {
   id        String   @id @default(cuid())
