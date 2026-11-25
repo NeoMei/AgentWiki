@@ -79,6 +79,33 @@ afterEach(() => {
 });
 
 describe('UniHub browser flows', () => {
+  it('uses UniHub as the primary sign-in entry when the default rollout is enabled', async () => {
+    mockApi(() => ({ enabled: true, defaultLogin: true }));
+    openRoute('/pages/old-page?tab=notes#selection');
+
+    expect(await screen.findByRole('link', { name: 'Sign in with UniHub' })).toHaveAttribute('href',
+      '/api/auth/unihub/start?returnTo=%2Fpages%2Fold-page%3Ftab%3Dnotes%23selection&mode=workspace');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Sign in with AgentWiki' })).toHaveAttribute('href', expect.stringContaining('intent=unihub'));
+  });
+
+  it('offers central sign-in and original account migration after the passive login returns', async () => {
+    mockApi(() => ({ enabled: true, defaultLogin: true }));
+    openRoute('/unihub?error=workspace&returnTo=%2Fpages%2Fold-page');
+
+    expect(await screen.findByRole('link', { name: 'Sign in with UniHub' })).toHaveAttribute('href',
+      '/api/auth/unihub/start?returnTo=%2Fpages%2Fold-page&mode=workspace&prompt=login');
+    expect(screen.getByRole('link', { name: 'Sign in with AgentWiki' })).toHaveAttribute('href', expect.stringContaining('intent=unihub'));
+  });
+
+  it('keeps workspace sign-in on a retry after the authorization preview cannot load', async () => {
+    mockApi(({ url }) => url === '/auth/unihub/status' ? { enabled: true, defaultLogin: true } : {});
+    openRoute(callbackRoute + '&mode=workspace&returnTo=%2Fprofile%2F');
+
+    expect(await screen.findByRole('link', { name: 'Start a new UniHub sign-in' })).toHaveAttribute('href',
+      '/api/auth/unihub/start?returnTo=%2Fprofile%2F&mode=workspace');
+  });
+
   it('preserves the original protected destination in the UniHub sign-in URL', async () => {
     const adapter = mockApi(() => ({ enabled: true }));
     openRoute('/pages/old-page?tab=notes#selection');

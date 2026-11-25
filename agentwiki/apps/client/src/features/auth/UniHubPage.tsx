@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useDirtyNavigationGuard } from '../space-workspace/workspaceNavigation';
 import { safeReturnTo } from './safeReturnTo';
-import { safeUniHubReturnTo, uniHubEntryHref, uniHubRedirectUrl, uniHubStartHref } from './unihubNavigation';
+import { safeUniHubReturnTo, uniHubEntryHref, uniHubOriginalLoginHref, uniHubRedirectUrl, uniHubStartHref } from './unihubNavigation';
 import { useUniHubStatus } from './useUniHubStatus';
 
 type ReauthMode = 'link' | 'enroll';
@@ -134,7 +134,10 @@ function UniHubCard({ children }: { children: ReactNode }) {
 
 interface UniHubFlowProps {
   bound?: boolean;
-  hubEntry: boolean;
+  nativeEntry: boolean;
+  workspaceEntry: boolean;
+  workspaceChoice: boolean;
+  workspaceSignIn: boolean;
   continuing: boolean;
   confirmationId: string | null;
   callbackSession: CallbackSession;
@@ -142,7 +145,7 @@ interface UniHubFlowProps {
   returnTo: string | null;
 }
 
-function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSession, failed, returnTo }: UniHubFlowProps) {
+function UniHubFlow({ bound, nativeEntry, workspaceEntry, workspaceChoice, workspaceSignIn, continuing, confirmationId, callbackSession, failed, returnTo }: UniHubFlowProps) {
   const { token, user, login } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -154,7 +157,7 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSessi
   const [autoFailed, setAutoFailed] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
   const [linkRequired, setLinkRequired] = useState(false);
-  const autoEntry = hubEntry && !continuing && Boolean(token);
+  const autoEntry = nativeEntry && !continuing && Boolean(token);
   const [preview, setPreview] = useState<{ token: string | null; flow: PendingFlow | null }>();
   const pending = callbackSession === 'current' && preview?.token === token ? preview.flow : undefined;
   const switchRequired = pending?.mode === 'sso' && Boolean(token) && pending.sameUser !== true;
@@ -239,6 +242,7 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSessi
         ...(action === 'switch' ? { confirmAccountSwitch: true } : {}),
       } : {
         mode: action,
+        ...(workspaceEntry ? { workspaceReturnTo: returnTo ?? '/dashboard' } : {}),
         ...(action !== 'open' && password ? { password } : {}),
       };
       const { data } = await api.post<FinishResult>(finish ? '/auth/unihub/finish' : '/auth/unihub/native', body, {
@@ -297,7 +301,7 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSessi
       submission.current = null;
       if (alive.current && !cancelled.current) setBusy(false);
     }
-  }, [bound, confirmationId, destination, finishFailed, login, navigate, pending, switchRequired, t, token]);
+  }, [bound, confirmationId, destination, finishFailed, login, navigate, pending, returnTo, switchRequired, t, token, workspaceEntry]);
 
   useEffect(() => {
     if (autoAttempted.current) return;
@@ -326,7 +330,7 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSessi
   }
 
   const deviceReturn = safeReturnTo(returnTo);
-  const originalLogin = deviceReturn
+  const originalLogin = workspaceChoice ? (token ? uniHubEntryHref(returnTo, true) : uniHubOriginalLoginHref(returnTo, true)) : deviceReturn
     ? '/?intent=onboard&returnTo=' + encodeURIComponent(deviceReturn) + '#login'
     : '/?intent=workspace#login';
 
@@ -370,7 +374,7 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSessi
             </>
           ) : null}
           {restartSignIn ? (
-            <a className={primaryClass} href={uniHubStartHref(destination)} onClick={leave}>{t('unihub.restartSignIn')}</a>
+            <a className={primaryClass} href={uniHubStartHref(destination, workspaceSignIn ? 'workspace' : undefined)} onClick={leave}>{t('unihub.restartSignIn')}</a>
           ) : finishFailed && pending?.mode === 'link' ? (
             <Link className={primaryClass} replace onClick={leave}
               to={destination ? '/unihub?returnTo=' + encodeURIComponent(destination) : '/unihub'}>
@@ -378,10 +382,11 @@ function UniHubFlow({ bound, hubEntry, continuing, confirmationId, callbackSessi
             </Link>
           ) : null}
         </>
-      ) : !token ? (
+      ) : !token || workspaceChoice ? (
         <div className="flex flex-col gap-3">
-          <a className={primaryClass} href={uniHubStartHref(returnTo)}>{t('unihub.signIn')}</a>
+          <a className={primaryClass} href={uniHubStartHref(returnTo, workspaceChoice ? 'interactive' : undefined)}>{t('unihub.signIn')}</a>
           <Link className={secondaryClass} to={originalLogin} state={{ workspaceReturnTo: returnTo }}>{t('unihub.nativeSignIn')}</Link>
+          {workspaceChoice ? <p className="text-sm text-gray-600">{t('unihub.migrateHelp')}</p> : null}
         </div>
       ) : autoEntry && !autoFailed ? (
         <p role="status" className="text-sm text-gray-600">{t('common.loading')}</p>
@@ -436,6 +441,7 @@ export default function UniHubPage() {
   const flow = query.get('flow');
   const confirmationId = flow && /^[a-f0-9]{64}$/.test(flow) ? flow : null;
   const hubEntry = query.get('entry') === 'hub';
+  const requestedWorkspaceEntry = query.get('entry') === 'workspace';
   const callbackSession = useCallbackSession(continuing ? confirmationId : null, token);
   // A callback only needs the feature flag. Its preview checks the active session.
   const status = useUniHubStatus(continuing ? null : token, callbackSession !== 'changed');
@@ -444,13 +450,21 @@ export default function UniHubPage() {
     if (!status) return <div role="status" className="py-8 text-center text-gray-500">{t('common.loading')}</div>;
     if (!status.enabled) return <Navigate to={returnTo ?? (token ? '/dashboard' : '/')} replace />;
   }
+  const workspaceEntry = requestedWorkspaceEntry && status?.defaultLogin === true;
+  const workspaceChoice = query.get('error') === 'workspace' && status?.defaultLogin === true;
+  const workspaceSignIn = query.get('mode') === 'workspace' && status?.defaultLogin === true;
+  const nativeEntry = hubEntry || workspaceEntry;
   if (token && user?.mustChangePassword && callbackSession === 'current') {
-    return <Navigate to="/change-password" replace state={hubEntry ? { passwordUserId: user.id, uniHubReturnTo: uniHubEntryHref(returnTo) } : undefined} />;
+    return <Navigate to="/change-password" replace state={nativeEntry ? { passwordUserId: user.id, uniHubReturnTo: uniHubEntryHref(returnTo, workspaceEntry) } : undefined} />;
   }
-  if (hubEntry && !continuing && !token) {
-    return <Navigate to={'/?intent=unihub&returnTo=' + encodeURIComponent(uniHubEntryHref(returnTo)) + '#login'} replace />;
+  if (requestedWorkspaceEntry && !continuing && token && (!workspaceEntry || user?.authSource === 'unihub')) {
+    return <Navigate to={returnTo ?? '/dashboard'} replace />;
+  }
+  if (nativeEntry && !continuing && !token) {
+    return <Navigate to={uniHubOriginalLoginHref(returnTo, workspaceEntry)} replace />;
   }
 
-  return <UniHubFlow key={location.key} bound={status?.bound} hubEntry={hubEntry} continuing={continuing} confirmationId={confirmationId}
+  return <UniHubFlow key={location.key} bound={status?.bound} nativeEntry={nativeEntry} workspaceEntry={workspaceEntry}
+    workspaceChoice={workspaceChoice} workspaceSignIn={workspaceSignIn} continuing={continuing} confirmationId={confirmationId}
     callbackSession={callbackSession} failed={query.get('error') === 'login'} returnTo={returnTo} />;
 }

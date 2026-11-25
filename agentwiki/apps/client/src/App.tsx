@@ -91,13 +91,7 @@ const SectionRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   <WorkspaceRoute mode="section"><Suspense fallback={<RouteLoading />}>{children}</Suspense></WorkspaceRoute>
 );
 
-export function safeNativeReturnTo(value: unknown): string | null {
-  if (typeof value === 'string' && value.length <= 1024) {
-    const path = value.match(/^\/(?:admin|agents(?:\/[\w-]+)?|notifications|profile|review|search)\/?(?=[?#]|$)/u)?.[0];
-    if (path && safeUniHubReturnTo('/' + value.slice(path.length))) return value;
-  }
-  return safeUniHubReturnTo(value);
-}
+export const safeNativeReturnTo = safeUniHubReturnTo;
 
 export const ProtectedRoute: React.FC<{ children: React.ReactNode; allowSignedOut?: boolean }> = ({ children, allowSignedOut }) => {
   const { token, user, fromAnotherTab } = useAuth();

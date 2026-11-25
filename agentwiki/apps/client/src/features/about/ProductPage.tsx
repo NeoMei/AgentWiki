@@ -13,7 +13,7 @@ import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { BrandMark } from '../../components/BrandMark';
 import { GlobalNavigation } from '../../components/GlobalNavigation';
 import { safeReturnTo } from '../auth/safeReturnTo';
-import { safeUniHubEntryHref, safeUniHubReturnTo, uniHubStartHref } from '../auth/unihubNavigation';
+import { safeUniHubEntryHref, safeUniHubReturnTo, uniHubEntryHref, uniHubOriginalLoginHref, uniHubStartHref } from '../auth/unihubNavigation';
 import { useUniHubStatus } from '../auth/useUniHubStatus';
 import { apiErrorMessage } from '../../api/error-message';
 import { authEmailError, type AuthEmailError } from '../auth/auth-email-error';
@@ -29,6 +29,7 @@ export const ProductPage: React.FC = () => {
   const navigate = useNavigate();
   const loginCardRef = useRef<HTMLDivElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const uniHubLinkRef = useRef<HTMLAnchorElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const authTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -51,12 +52,18 @@ export const ProductPage: React.FC = () => {
   const onboardIntent = intent === 'onboard';
   const workspaceReturnTo = intent === 'workspace' ? safeNativeReturnTo(location.state?.workspaceReturnTo) : null;
   const returnTarget = safeReturnTo(query.get('returnTo')) ?? workspaceReturnTo;
+  const checkingUniHub = !uniHubStatus && !hubReturnTo && authMode === 'login';
+  const primaryUniHub = uniHubStatus?.defaultLogin === true && !hubReturnTo && authMode === 'login';
 
   useEffect(() => {
     if (!authIntent || token) return;
     loginCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    emailInputRef.current?.focus({ preventScroll: true });
   }, [authIntent, token]);
+
+  useEffect(() => {
+    if (!authIntent || token || checkingUniHub || authMode !== 'login') return;
+    (primaryUniHub ? uniHubLinkRef.current : emailInputRef.current)?.focus({ preventScroll: true });
+  }, [authIntent, authMode, checkingUniHub, primaryUniHub, token]);
 
   useEffect(() => {
     if (emailError && !isSubmitting) emailInputRef.current?.focus();
@@ -102,12 +109,14 @@ export const ProductPage: React.FC = () => {
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
       const res = await api.post(endpoint, payload);
       if (login(res.data.access_token, res.data.user) === false) return;
+      const uniHubReturnTo = hubReturnTo ?? (authMode === 'register' && uniHubStatus?.defaultLogin
+        ? uniHubEntryHref(safeUniHubReturnTo(returnTarget), true) : null);
       if (res.data.user?.mustChangePassword) {
         navigate('/change-password', { replace: true, state: {
-          passwordUserId: res.data.user.id, uniHubReturnTo: hubReturnTo, passwordReturnTo: returnTarget,
+          passwordUserId: res.data.user.id, uniHubReturnTo, passwordReturnTo: returnTarget,
         } });
       } else {
-        navigate(hubReturnTo ?? returnTarget ?? '/dashboard', { replace: Boolean(hubReturnTo) });
+        navigate(uniHubReturnTo ?? returnTarget ?? '/dashboard', { replace: Boolean(uniHubReturnTo) });
       }
     } catch (err: unknown) {
       const fieldError = authEmailError(err, authMode === 'register');
@@ -286,7 +295,19 @@ export const ProductPage: React.FC = () => {
                     </div>
                   )}
 
-                  <form onSubmit={handleAuth} noValidate className="space-y-4">
+                  {checkingUniHub ? (
+                    <p role="status" className="py-3 text-center text-sm text-gray-600">{t('common.loading')}</p>
+                  ) : primaryUniHub ? (
+                    <div className="space-y-3">
+                      <a ref={uniHubLinkRef} href={uniHubStartHref(safeUniHubReturnTo(returnTarget), 'workspace')} className="block rounded-lg bg-blue-600 px-4 py-3 text-center font-medium text-white hover:bg-blue-700">
+                        {t('unihub.signIn')}
+                      </a>
+                      <Link to={uniHubOriginalLoginHref(safeUniHubReturnTo(returnTarget), true)} className="block rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-medium text-gray-800 hover:bg-gray-50">
+                        {t('unihub.nativeSignIn')}
+                      </Link>
+                      <p className="text-sm text-gray-600">{t('unihub.migrateHelp')}</p>
+                    </div>
+                  ) : <form onSubmit={handleAuth} noValidate className="space-y-4">
                   {authMode === 'register' && (
                     <div>
                       <label htmlFor="product-auth-name" className="sr-only">{t('common.name')}</label>
@@ -381,8 +402,8 @@ export const ProductPage: React.FC = () => {
                       </>
                     )}
                   </button>
-                  </form>
-                  {uniHubStatus?.enabled && !hubReturnTo && authMode === 'login' ? (
+                  </form>}
+                  {uniHubStatus?.enabled && !primaryUniHub && !hubReturnTo && authMode === 'login' ? (
                     <a href={uniHubStartHref(safeUniHubReturnTo(returnTarget))} className="mt-3 block rounded-lg border border-gray-300 px-4 py-3 text-center text-sm font-medium text-gray-800 hover:bg-gray-50">
                       {t('unihub.signIn')}
                     </a>
