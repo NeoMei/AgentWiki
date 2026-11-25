@@ -33,9 +33,9 @@ interface BrowserProof {
   nonce: string;
   verifier: string;
 }
-type Flow = ({ mode: 'sso'; returnTo: string } & BrowserProof)
-  | ({ mode: 'link'; userId: string; epoch: number; linkId: string } & BrowserProof)
-  | { mode: 'handoff'; state: string; userId: string; epoch: number; nativeSession: UniHubNativeBrowserProof };
+type Flow = ({ mode: 'sso'; returnTo: string; workspace?: true; workspaceUserId?: string } & BrowserProof)
+  | ({ mode: 'link'; userId: string; epoch: number; linkId: string; workspaceReturnTo?: string } & BrowserProof)
+  | { mode: 'handoff'; state: string; userId: string; epoch: number; nativeSession: UniHubNativeBrowserProof; workspaceReturnTo?: string };
 type SavedFlow = Flow & { code?: string; generation: string };
 type IdentitySession = { identity: UniHubIdentity; source_proof_token: string; source_proof_expires_at: number };
 
@@ -47,6 +47,11 @@ class NativeRequest {
   @IsString()
   @MaxLength(512)
   password?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  workspaceReturnTo?: string;
 }
 
 class FinishRequest {
@@ -87,24 +92,31 @@ export class UniHubController {
   @Header('Cache-Control', 'no-store')
   async status(@Req() request: Request) {
     if (!this.client.enabled || !this.client.hasPilotUsers) return { enabled: false };
+    const enabled = { enabled: true, ...(this.client.defaultLogin ? { defaultLogin: true } : {}) };
     const credential = this.bearer(request);
-    if (!credential) return { enabled: true };
+    if (!credential) return enabled;
     const actor = await this.auth.validateJwtUser(credential.sub, credential.unihubSid, credential.nativeFingerprint);
     if (!actor || actor.mustChangePassword || (credential.authVersion !== undefined && credential.authVersion !== actor.authVersion)) {
-      return { enabled: true };
+      return enabled;
     }
     if (!this.client.allowsLocalUser(actor.userId)) return { enabled: false };
-    return { enabled: true, bound: Boolean(await this.sessions.findBinding(actor.userId)) };
+    return { ...enabled, bound: Boolean(await this.sessions.findBinding(actor.userId)) };
   }
 
   @Get('start')
-  async start(@Query('returnTo') returnTo: unknown, @Res() response: Response) {
+  async start(@Query('returnTo') returnTo: unknown, @Res() response: Response,
+    @Query('mode') mode?: unknown, @Query('prompt') prompt?: unknown) {
     this.requireEnabled();
+    await this.beginSSO(response, agentWikiReturnTo(returnTo), this.client.defaultLogin && mode === 'workspace', prompt === 'login');
+  }
+
+  private async beginSSO(response: Response, returnTo: string, workspace: boolean, interactive = false, workspaceUserId?: string) {
     const proof = this.newProof();
-    await this.save(response, { mode: 'sso', ...proof, returnTo: agentWikiReturnTo(returnTo) });
+    await this.save(response, { mode: 'sso', ...proof, returnTo, ...(workspace ? { workspace: true, workspaceUserId } : {}) });
     response.redirect(303, this.client.browserURL('/auth/product/authorize', {
       client_id: this.client.clientId, redirect_uri: this.client.callbackURL,
       state: proof.state, nonce: proof.nonce, code_challenge: this.challenge(proof.verifier), code_challenge_method: 'S256',
+      ...(workspace && interactive ? { prompt: 'login' } : {}),
     }));
   }
 
@@ -114,6 +126,9 @@ export class UniHubController {
     this.requireEnabled();
     const credential = this.bearer(request);
     const automatic = input.mode === 'auto';
+    const workspaceReturnTo = this.client.defaultLogin && input.workspaceReturnTo !== undefined
+      ? agentWikiReturnTo(input.workspaceReturnTo)
+      : undefined;
     if (credential?.unihubSid && (automatic || input.mode === 'open')) {
       const actor = await this.auth.validateJwtUser(credential.sub, credential.unihubSid, credential.nativeFingerprint);
       if (!actor || actor.mustChangePassword || actor.authVersion !== credential.authVersion) throw new UnauthorizedException();
@@ -123,7 +138,7 @@ export class UniHubController {
     const epoch = user.authVersion + 1;
     if (input.mode === 'open' || (automatic && await this.sessions.findBinding(user.id))) {
       const proof = await this.trackNative(credential, user.id);
-      return this.beginHandoff(response, user.id, epoch, proof);
+      return this.beginHandoff(response, user.id, epoch, proof, workspaceReturnTo);
     }
 
     const recentLogin = Boolean(credential?.iat && Date.now() / 1000 - credential.iat <= 55);
@@ -147,7 +162,7 @@ export class UniHubController {
         ...(automatic ? { automatic: true } : {}),
       });
       await this.bind(result, user.id, epoch);
-      return this.beginHandoff(response, user.id, epoch, nativeProof);
+      return this.beginHandoff(response, user.id, epoch, nativeProof, workspaceReturnTo);
     }
 
     const proof = this.newProof();
@@ -155,7 +170,7 @@ export class UniHubController {
       client_id: this.client.clientId, state: proof.state, nonce: proof.nonce, code_challenge: this.challenge(proof.verifier), authentication,
     });
     if (!/^[A-Za-z0-9_-]{43}$/.test(result.link_id)) throw new ServiceUnavailableException('Invalid UniHub response');
-    await this.save(response, { mode: 'link', ...proof, userId: user.id, epoch, linkId: result.link_id });
+    await this.save(response, { mode: 'link', ...proof, userId: user.id, epoch, linkId: result.link_id, workspaceReturnTo });
     return { redirectUrl: this.client.checkBrowserURL(result.authorize_url, '/auth/product/link') };
   }
 
@@ -168,12 +183,17 @@ export class UniHubController {
     if (!await this.redis.deleteIfValueMatches(saved.key, saved.raw)) throw new BadRequestException('Expired UniHub handoff');
     if (request.query.error) {
       const target = saved.flow.mode === 'sso' ? '&returnTo=' + encodeURIComponent(saved.flow.returnTo) : '';
-      response.redirect(303, '/unihub?error=login' + target);
+      const error = saved.flow.mode === 'sso' && saved.flow.workspace && this.client.defaultLogin ? 'workspace' : 'login';
+      response.redirect(303, '/unihub?error=' + error + target);
       return;
     }
     const flow = saved.flow;
     if (flow.mode === 'handoff') {
       if (request.query.handoff_done === '1') {
+        if (flow.workspaceReturnTo !== undefined && this.client.defaultLogin) {
+          await this.beginSSO(response, flow.workspaceReturnTo, true, false, flow.userId);
+          return;
+        }
         response.redirect(303, this.client.browserURL('/console'));
         return;
       }
@@ -200,7 +220,8 @@ export class UniHubController {
     if (request.query[expectedRoute] !== '1' || typeof code !== 'string' || code.length < 43 || code.length > 80 ||
         !/^[A-Za-z0-9_-]+$/.test(code)) throw new BadRequestException('Invalid UniHub authorization response');
     await this.redis.setStrict(saved.key, JSON.stringify({ ...flow, code }), 120);
-    const target = flow.mode === 'sso' ? '&returnTo=' + encodeURIComponent(flow.returnTo) : '';
+    const target = flow.mode === 'sso' ? '&returnTo=' + encodeURIComponent(flow.returnTo)
+      + (flow.workspace ? '&mode=workspace' : '') : '';
     response.redirect(303, '/unihub?continue=1&flow=' + saved.confirmationId + target);
   }
 
@@ -229,7 +250,7 @@ export class UniHubController {
         ...exchange, link_id: flow.linkId, central_user_id: input.centralUserId, authentication,
       });
       await this.bind(result, user.id, flow.epoch);
-      return this.beginHandoff(response, user.id, flow.epoch, nativeProof);
+      return this.beginHandoff(response, user.id, flow.epoch, nativeProof, flow.workspaceReturnTo);
     }
 
     const current = this.bearer(request);
@@ -242,11 +263,14 @@ export class UniHubController {
     const identity = result.identity;
     const user = await this.nativeUser({ sub: identity.binding.local_user_id, authVersion: identity.auth_version - 1 });
     const sameUser = active?.userId === user.id && active.authVersion === user.authVersion;
+    if (flow.workspaceUserId && (flow.workspaceUserId !== user.id || !sameUser)) {
+      throw new ConflictException('AgentWiki account changed during migration');
+    }
     if (!sameUser && (input.requireSameUser || (active && !input.confirmAccountSwitch))) {
       throw new ConflictException('Confirm the AgentWiki account switch');
     }
     await this.bind(identity, user.id, user.authVersion + 1);
-    if (sameUser && !current?.unihubSid) return { returnTo: flow.returnTo };
+    if (sameUser && !current?.unihubSid && !flow.workspaceUserId) return { returnTo: flow.returnTo };
     const local = await this.sessions.open(user.id, identity.binding.user_id, result.source_proof_token, result.source_proof_expires_at);
     return {
       access_token: this.auth.signToken(user, local),
@@ -266,6 +290,9 @@ export class UniHubController {
     if (flow.mode === 'sso') {
       const result = { mode: 'sso' as const, confirmationId: saved.confirmationId, returnTo: flow.returnTo };
       const actor = await this.currentActor(this.bearer(request));
+      if (flow.workspaceUserId && actor?.userId !== flow.workspaceUserId) {
+        throw new ConflictException('AgentWiki account changed during migration');
+      }
       if (!actor || !this.client.allowsLocalUser(actor.userId)) return result;
       try {
         const { matches } = await this.call<{ matches: boolean }>('/session/matches', {
@@ -273,8 +300,9 @@ export class UniHubController {
         });
         if (matches === true) return { ...result, sameUser: true };
       } catch {
-        // Explicit SSO confirmation is available when the account match cannot be checked.
+        // Other SSO flows can still use explicit confirmation.
       }
+      if (flow.workspaceUserId) throw new ConflictException('AgentWiki account changed during migration');
       return result;
     }
     const user = await this.nativeUser(this.bearer(request));
@@ -396,10 +424,10 @@ export class UniHubController {
     return { local_user_id: userId, authentication_id: randomUUID(), auth_version: epoch, method, authenticated_at: Math.floor(Date.now() / 1000) };
   }
 
-  private async beginHandoff(response: Response, userId: string, epoch: number, nativeSession: UniHubNativeBrowserProof) {
+  private async beginHandoff(response: Response, userId: string, epoch: number, nativeSession: UniHubNativeBrowserProof, workspaceReturnTo?: string) {
     if (!await this.sessions.findBinding(userId)) throw new ConflictException('AgentWiki account is not bound to UniHub');
     const state = secret();
-    await this.save(response, { mode: 'handoff', state, userId, epoch, nativeSession });
+    await this.save(response, { mode: 'handoff', state, userId, epoch, nativeSession, workspaceReturnTo });
     return { redirectUrl: this.client.browserURL('/auth/product/start', { client_id: this.client.clientId, state }) };
   }
 

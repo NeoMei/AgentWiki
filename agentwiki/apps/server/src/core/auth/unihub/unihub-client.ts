@@ -37,7 +37,7 @@ export function agentWikiReturnTo(input: unknown): string {
         codes.length > 1 || (codes.length === 1 && !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(codes[0]))) return '/';
   } else if (value.pathname === '/guide/obsidian') {
     if (value.search || (value.hash && value.hash !== '#connect')) return '/';
-  } else if (!/^\/(?:$|dashboard$|(?:spaces|pages|space)(?:\/[a-zA-Z0-9_-]+)*\/?$)/.test(value.pathname)) {
+  } else if (!/^\/(?:$|(?:dashboard|admin|notifications|profile|review|search)\/?$|agents(?:\/[a-zA-Z0-9_-]+)?\/?$|(?:spaces|pages|space)(?:\/[a-zA-Z0-9_-]+)*\/?$)/.test(value.pathname)) {
     return '/';
   }
   return value.pathname + value.search + value.hash;
@@ -64,6 +64,7 @@ export function hasUniHubLifecycleRuntime(apiOrigin?: string, token?: string): b
 @Injectable()
 export class UniHubClient {
   readonly enabled: boolean;
+  readonly defaultLogin: boolean;
   readonly lifecycleEnabled: boolean;
   readonly clientId: string;
   readonly sessionGeneration: string;
@@ -75,6 +76,7 @@ export class UniHubClient {
 
   constructor(config: ConfigService) {
     this.enabled = config.get('UNIHUB_IDENTITY_ENABLED') === 'true';
+    this.defaultLogin = this.enabled && config.get('UNIHUB_IDENTITY_DEFAULT_LOGIN') === 'true';
     this.clientId = config.get<string>('UNIHUB_IDENTITY_CLIENT_ID') ?? '';
     this.sessionGeneration = config.get<string>('UNIHUB_IDENTITY_SESSION_GENERATION') ?? '1';
     if (this.enabled && (this.sessionGeneration === 'disabled' || !/^[a-zA-Z0-9._-]{1,64}$/.test(this.sessionGeneration))) {

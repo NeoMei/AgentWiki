@@ -54,6 +54,27 @@ describe('UniHub callback flow ownership', () => {
     req.query = { flow: confirmationId };
     await expect(controller.pending(req)).resolves.toEqual({ mode: 'sso', confirmationId });
   });
+
+  it('resumes the original destination and pins the verified AgentWiki user after the browser handoff', async () => {
+    const { controller, redis, client, req } = fixture();
+    const returnTo = '/agents/original-agent?tab=credentials#existing-key';
+    const handoff = { mode: 'handoff', generation, state: 'handoff-state', userId: 'original-user', workspaceReturnTo: returnTo };
+    redis.getStrict.mockResolvedValue(JSON.stringify(handoff));
+    const setStrict = jest.fn().mockResolvedValue(undefined);
+    Object.assign(redis, { setStrict });
+    const browserURL = jest.fn().mockReturnValue('https://hub.test/auth/product/authorize');
+    Object.assign(client, { defaultLogin: true, clientId: 'wiki', browserURL });
+    req.query = { state: handoff.state, handoff_done: '1' };
+    const res = { set: jest.fn(), cookie: jest.fn(), redirect: jest.fn() } as unknown as Response;
+
+    await controller.callback(req, res);
+
+    expect(browserURL).toHaveBeenCalledWith('/auth/product/authorize', expect.objectContaining({ client_id: 'wiki', code_challenge_method: 'S256' }));
+    expect(res.redirect).toHaveBeenCalledWith(303, 'https://hub.test/auth/product/authorize');
+    const saved = JSON.parse(setStrict.mock.calls[0][1]);
+    expect(saved).toMatchObject({ mode: 'sso', returnTo, workspace: true, workspaceUserId: handoff.userId });
+    expect(saved.state).not.toBe(handoff.state);
+  });
 });
 
 describe('seamless AgentWiki entry into UniHub', () => {
@@ -122,17 +143,18 @@ describe('UniHub return to an active AgentWiki session', () => {
   const confirmationId = createHash('sha256').update(cookie).digest('hex');
   const generation = 'flow-test';
 
-  function fixture(incomingId: string) {
-    const flow = { mode: 'sso', generation, code: 'fixture-code', nonce: 'nonce', state: 'state', verifier: 'verifier', returnTo: '/dashboard' };
+  function fixture(incomingId: string, workspaceUserId?: string) {
+    const flow = { mode: 'sso', generation, code: 'fixture-code', nonce: 'nonce', state: 'state', verifier: 'verifier', returnTo: '/dashboard', workspaceUserId };
     const redis = { getStrict: jest.fn().mockResolvedValue(JSON.stringify(flow)), deleteIfValueMatches: jest.fn().mockResolvedValue(true) };
     const client = {
       enabled: true, hasPilotUsers: true, sessionGeneration: generation, allowsLocalUser: () => true,
       callbackURL: 'https://wiki.test/api/auth/unihub/callback',
       request: jest.fn().mockResolvedValue({
         identity: { binding: { local_user_id: incomingId, user_id: 'center-id' }, auth_version: 5, access: { active: true, permissions: ['product:use'] } },
+        source_proof_token: 'fixture-proof', source_proof_expires_at: 9000000000,
       }),
     };
-    const auth = { validateJwtUser: jest.fn().mockResolvedValue({ userId: 'active-user', authVersion: 4 }) };
+    const auth = { validateJwtUser: jest.fn().mockResolvedValue({ userId: 'active-user', authVersion: 4 }), signToken: jest.fn().mockReturnValue('brokered-token') };
     const sessions = { bind: jest.fn(), open: jest.fn() };
     const prisma = { user: { findUnique: jest.fn().mockResolvedValue({ id: incomingId, type: 'human', authVersion: 4 }) } };
     const jwt = { verify: () => ({ sub: 'active-user', authVersion: 4 }) };
@@ -142,9 +164,28 @@ describe('UniHub return to an active AgentWiki session', () => {
     return {
       finish: (input: { requireSameUser?: boolean; confirmAccountSwitch?: boolean } = { requireSameUser: true }) =>
         controller.finish({ mode: 'sso', confirmationId, ...input }, request, response),
-      response, sessions,
+      request, response, sessions,
     };
   }
+
+  it('upgrades a matching original-account migration to a UniHub-backed session', async () => {
+    const { finish, sessions } = fixture('active-user', 'active-user');
+    await expect(finish()).resolves.toMatchObject({ access_token: 'brokered-token', user: { id: 'active-user', authSource: 'unihub' }, returnTo: '/dashboard' });
+    expect(sessions.open).toHaveBeenCalledWith('active-user', 'center-id', 'fixture-proof', 9000000000);
+  });
+
+  it('rejects a different identity on migration even when the browser confirms switching', async () => {
+    const { finish, sessions } = fixture('other-user', 'active-user');
+    await expect(finish({ confirmAccountSwitch: true })).rejects.toMatchObject({ status: 409 });
+    expect(sessions.open).not.toHaveBeenCalled();
+  });
+
+  it('does not reauthenticate a migration after the original AgentWiki session is removed', async () => {
+    const { request, finish, sessions } = fixture('active-user', 'active-user');
+    delete request.headers.authorization;
+    await expect(finish({})).rejects.toMatchObject({ status: 409 });
+    expect(sessions.open).not.toHaveBeenCalled();
+  });
 
   it('retains the native JWT when the exchanged code matches the active account', async () => {
     const { finish, sessions } = fixture('active-user');

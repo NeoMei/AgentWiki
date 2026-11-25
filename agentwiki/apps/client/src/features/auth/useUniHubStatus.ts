@@ -4,6 +4,7 @@ import api from '../../api/client';
 interface UniHubStatus {
   enabled: boolean;
   bound?: boolean;
+  defaultLogin?: boolean;
 }
 
 const unavailable: UniHubStatus = { enabled: false };

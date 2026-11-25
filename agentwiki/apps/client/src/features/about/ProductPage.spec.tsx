@@ -37,10 +37,11 @@ const registrationForm = (language: 'zh-CN' | 'en' = 'zh-CN') => {
 describe('product authentication validation order', () => {
   beforeEach(() => { vi.clearAllMocks(); localStorage.setItem('agentwiki.language.v1', 'en'); });
 
-  it('uses custom validation for the actual entry form and focuses in visual field order', () => {
+  it('uses custom validation for the actual entry form and focuses in visual field order', async () => {
     const { container } = render(<LanguageProvider><MemoryRouter><ProductPage /></MemoryRouter></LanguageProvider>);
+    const signIn = await screen.findByRole('button', { name: 'Sign in' });
     expect(container.querySelector('form')).toHaveAttribute('novalidate');
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(signIn);
     expect(screen.getByRole('alert')).toHaveTextContent('Enter your email address');
     expect(screen.getByLabelText('Email')).toHaveFocus();
     fireEvent.click(screen.getByRole('tab', { name: 'Switch to register' }));
@@ -60,14 +61,14 @@ describe('product authentication validation order', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it.each(['a@b..com', 'a@-b.com', 'a@b_.com', 'a,b@example.com', 'a<b@example.com', 'a..b@example.com', '.a@example.com', 'a.@example.com'])('rejects invalid email at the actual login and registration entry: %s', value => {
+  it.each(['a@b..com', 'a@-b.com', 'a@b_.com', 'a,b@example.com', 'a<b@example.com', 'a..b@example.com', '.a@example.com', 'a.@example.com'])('rejects invalid email at the actual login and registration entry: %s', async value => {
     const { email, submit } = registrationForm('en');
     fireEvent.change(email, { target: { value } });
     fireEvent.click(submit);
     expect(email).toHaveFocus();
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address');
     fireEvent.click(screen.getByRole('tab', { name: 'Switch to sign in' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }));
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid email address');
     expect(api.post).not.toHaveBeenCalled();
   });
@@ -82,7 +83,7 @@ describe('ProductPage workspace intent', () => {
     vi.mocked(api.post).mockReset();
   });
 
-  it('explains the redirect and focuses email', () => {
+  it('explains the redirect and focuses email', async () => {
     render(
       <LanguageProvider>
         <MemoryRouter initialEntries={['/?intent=workspace#login']}>
@@ -92,7 +93,7 @@ describe('ProductPage workspace intent', () => {
     );
 
     expect(screen.getByText('登录后进入工作台。')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('邮箱')).toHaveFocus();
+    expect(await screen.findByPlaceholderText('邮箱')).toHaveFocus();
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     expect(screen.getByRole('link', { name: '天枢' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: '首页' })).toBeInTheDocument();
@@ -148,7 +149,7 @@ describe('ProductPage workspace intent', () => {
       : screen.getByLabelText('密码')).toHaveAttribute('aria-invalid', 'true');
   });
 
-  it('uses in-page validation for an empty password instead of a browser prompt', () => {
+  it('uses in-page validation for an empty password instead of a browser prompt', async () => {
     render(
       <LanguageProvider>
         <MemoryRouter initialEntries={['/?intent=workspace#login']}>
@@ -156,7 +157,7 @@ describe('ProductPage workspace intent', () => {
         </MemoryRouter>
       </LanguageProvider>,
     );
-    fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
+    fireEvent.change(await screen.findByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
 
     expect(api.post).not.toHaveBeenCalled();
@@ -210,7 +211,7 @@ describe('ProductPage workspace intent', () => {
       fireEvent.click(screen.getByRole('tab', { name: '切换到注册' }));
       fireEvent.change(screen.getByPlaceholderText('名称'), { target: { value: 'Neo' } });
     }
-    fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
+    fireEvent.change(await screen.findByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'Password1' } });
     fireEvent.click(screen.getByRole('button', { name: mode === 'login' ? '登录' : '注册' }));
 
@@ -233,12 +234,12 @@ describe('ProductPage workspace intent', () => {
       <Route path="/onboard/device" element={<><OnboardDevicePage/><LocationProbe/></>}/>
     </Routes></MemoryRouter></LanguageProvider>);
     fireEvent.click(await screen.findByRole('link',{name:zh?'登录或注册后授权':'Sign in or register to authorize'}));
-    expect(screen.getByRole('status')).toHaveTextContent(zh?'登录或注册后返回连接授权页面。':'Sign in or register to return to connection authorization.');
+    expect(screen.getByText(zh?'登录或注册后返回连接授权页面。':'Sign in or register to return to connection authorization.')).toBeVisible();
     if(mode === 'register') {
       fireEvent.click(screen.getByRole('tab',{name:zh?'切换到注册':'Switch to register'}));
       fireEvent.change(screen.getByPlaceholderText(zh?'名称':'Name'),{target:{value:'Fixture'}});
     }
-    fireEvent.change(screen.getByPlaceholderText(zh?'邮箱':'Email'),{target:{value:'fixture@example.invalid'}});
+    fireEvent.change(await screen.findByPlaceholderText(zh?'邮箱':'Email'),{target:{value:'fixture@example.invalid'}});
     fireEvent.change(screen.getByPlaceholderText(zh?'密码':'Password'),{target:{value:'Password1'}});
     fireEvent.click(screen.getByRole('button',{name:zh?(mode==='login'?'登录':'注册'):(mode==='login'?'Sign in':'Register')}));
     expect(await screen.findByRole('heading',{name:zh?'连接 Obsidian':'Connect Obsidian'})).toBeInTheDocument();
@@ -260,7 +261,7 @@ describe('ProductPage workspace intent', () => {
       </LanguageProvider>,
     );
 
-    fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
+    fireEvent.change(await screen.findByPlaceholderText('邮箱'), { target: { value: 'neo@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'Password1' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     await waitFor(() => expect(screen.getByText('/dashboard')).toBeInTheDocument());
@@ -278,7 +279,7 @@ describe('ProductPage workspace intent', () => {
       </LanguageProvider>,
     );
 
-    fireEvent.change(screen.getByPlaceholderText('邮箱'), { target: { value: 'wrong@example.com' } });
+    fireEvent.change(await screen.findByPlaceholderText('邮箱'), { target: { value: 'wrong@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'wrong' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
 
@@ -315,28 +316,30 @@ describe('ProductPage workspace intent', () => {
 
   it.each(['zh-CN', 'en'] as const)('validates login email locally and renders server email errors in %s', async (language) => {
     const zh = language === 'zh-CN';
-    const { email } = registrationForm(language);
+    registrationForm(language);
     fireEvent.click(screen.getByRole('tab', { name: zh ? '切换到登录' : 'Switch to sign in' }));
-    const submit = screen.getByRole('button', { name: zh ? '登录' : 'Sign in' });
-    fireEvent.change(email, { target: { value: 'billy_7608@163.c' } });
+    const submit = await screen.findByRole('button', { name: zh ? '登录' : 'Sign in' });
+    const loginEmail = screen.getByLabelText(zh ? '邮箱' : 'Email');
+    fireEvent.change(loginEmail, { target: { value: 'billy_7608@163.c' } });
     fireEvent.click(submit);
     const expected = zh ? '请输入有效的邮箱地址，例如 name@example.com。' : 'Enter a valid email address, such as name@example.com.';
     expect(api.post).not.toHaveBeenCalled();
-    expect(email).toHaveAccessibleDescription(expected);
-    expect(email).toHaveFocus();
-    fireEvent.change(email, { target: { value: 'name+tag@sub.example.technology' } });
+    expect(loginEmail).toHaveAccessibleDescription(expected);
+    expect(loginEmail).toHaveFocus();
+    fireEvent.change(loginEmail, { target: { value: 'name+tag@sub.example.technology' } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     vi.mocked(api.post).mockRejectedValue({ response: { status: 400, data: { code: 'BAD_REQUEST', message: 'email must be an email' } } });
     fireEvent.click(submit);
     expect(await screen.findByRole('alert')).toHaveTextContent(expected);
     expect(api.post).toHaveBeenCalledWith('/auth/login', { email: 'name+tag@sub.example.technology', password: 'Password1' });
-    expect(email).toHaveAccessibleDescription(expected);
+    expect(loginEmail).toHaveAccessibleDescription(expected);
     expect(screen.queryByRole('button', { name: zh ? '去登录' : 'Go to sign in' })).not.toBeInTheDocument();
   });
 
-  it('localizes native login-email validation without sending a request', () => {
-    const { email } = registrationForm();
+  it('localizes native login-email validation without sending a request', async () => {
+    registrationForm();
     fireEvent.click(screen.getByRole('tab', { name: '切换到登录' }));
+    const email = await screen.findByLabelText('邮箱');
     fireEvent.change(email, { target: { value: 'missing-at' } });
     fireEvent.click(screen.getByRole('button', { name: '登录' }));
     expect(api.post).not.toHaveBeenCalled();

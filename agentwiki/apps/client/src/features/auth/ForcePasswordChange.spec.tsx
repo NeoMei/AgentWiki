@@ -144,6 +144,7 @@ it('routes an existing temporary session through password change before loading 
 it('keeps a device code through native login and mandatory password change', async () => {
   const { router, requested } = open(devicePath);
   fireEvent.click(await screen.findByRole('link', { name: 'Sign in or register to authorize' }));
+  await screen.findByLabelText('Email');
   signIn();
 
   await waitFor(() => expect(router.state.location.pathname).toBe('/change-password'));
