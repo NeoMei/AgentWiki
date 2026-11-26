@@ -31,6 +31,7 @@ import { interpolateDefaultPageTitle } from './defaultPageTitle';
 import { listPageTemplates } from './pageTemplateApi';
 import type { PageTemplateListResponse, PageTemplateSummary } from './pageTemplateTypes';
 import { TemplateTreePreview } from './TemplateTreePreview';
+import { exceedsPageContentLimit } from '@agentwiki/shared';
 import { truncateValidatorLength } from './validatorLength';
 import { InstructionCopyButton } from './InstructionCopyButton';
 import './template-creation.css';
@@ -81,7 +82,6 @@ type CatalogState =
 const TemplateContentPreview = React.lazy(() => import('./TemplateContentPreview').then((module) => ({ default: module.TemplateContentPreview })));
 
 const PAGE_TITLE_LIMIT = 200;
-const MARKDOWN_IMPORT_MAX_CHARS = 200_000;
 
 const readMarkdownFile = (file: File): Promise<string> => {
   const text = (file as File & { text?: unknown }).text;
@@ -520,9 +520,8 @@ const NewPageDialogSession: React.FC<NewPageDialogProps> = ({
     setError(null);
     try {
       const content = (await readMarkdownFile(file)).replace(/^\uFEFF/u, '');
-      if (content.length > MARKDOWN_IMPORT_MAX_CHARS) {
-        const max = MARKDOWN_IMPORT_MAX_CHARS.toLocaleString(language === 'zh-CN' ? 'zh-CN' : 'en-US');
-        setError(language === 'zh-CN' ? `Markdown 文件超过 ${max} 字符限制。` : `The Markdown file exceeds the ${max} character limit.`);
+      if (exceedsPageContentLimit(content)) {
+        setError(language === 'zh-CN' ? 'Markdown 正文超过 10 MiB 上限。' : 'The Markdown body exceeds the 10 MiB text limit.');
         return;
       }
       const importedTitle = truncateValidatorLength(

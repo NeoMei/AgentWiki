@@ -6,7 +6,8 @@ import {
   treeCapabilitiesHashV3,
   TreeSyncCapabilitiesV3Schema,
 } from '@neomei/agentwiki-sync-protocol';
-import { DEFAULT_SYNC_CAPABILITIES } from './obsidian-crypto.service';
+import { obsidianSyncCapabilities } from './obsidian-crypto.service';
+import { LEGACY_SYNC_DOCUMENT_TREE_BYTES, supportsLargeSyncDocuments } from './sync-document-limits';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
@@ -19,23 +20,25 @@ export class SyncCapabilitiesService {
   ) {}
 
   capabilities() {
-    return { ...DEFAULT_SYNC_CAPABILITIES };
+    return obsidianSyncCapabilities();
   }
 
   async hash(): Promise<string> {
-    return capabilitiesHash(DEFAULT_SYNC_CAPABILITIES);
+    return capabilitiesHash(this.capabilities());
   }
 
   capabilitiesV2() {
+    const capabilities = this.capabilities();
     return {
-      ...DEFAULT_SYNC_CAPABILITIES,
+      ...capabilities,
       maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
       maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
-      maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
+      maxClientTotalBodyBytes: supportsLargeSyncDocuments()
+        ? TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes : LEGACY_SYNC_DOCUMENT_TREE_BYTES,
       maxClientSpaceFolders: TREE_SYNC_V2_LIMITS.maxClientSpaceFolders,
       maxSnapshotObjects: TREE_SYNC_V2_LIMITS.maxSnapshotObjects,
       maxDeltaItems: TREE_SYNC_V2_LIMITS.maxDeltaItems,
-      maxResponseBytes: Math.min(DEFAULT_SYNC_CAPABILITIES.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes),
+      maxClientManifestBytes: capabilities.maxResponseBytes,
     };
   }
 

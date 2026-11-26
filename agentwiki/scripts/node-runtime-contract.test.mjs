@@ -677,7 +677,7 @@ test('the local-sync release remains pinned to its compatible sync protocol rele
   const rootPackage = JSON.parse(await read('package.json'));
   const cleanInstallGate = await read('scripts/verify-local-sync-clean-install.mjs');
 
-  assert.equal(protocolPackage.version, '0.6.1');
+  assert.equal(protocolPackage.version, '0.6.2');
   assert.equal(localSyncPackage.dependencies[protocolPackage.name], '0.6.1');
   assert.doesNotMatch(
     localSyncPackage.dependencies[protocolPackage.name],
@@ -734,7 +734,7 @@ test('application release versions and independent sync versions stay aligned', 
     'application packages must use the same canonical semantic version as the root package',
   );
   assert.equal(localSyncPackage.version, '0.13.7');
-  assert.equal(syncProtocolPackage.version, '0.6.1');
+  assert.equal(syncProtocolPackage.version, '0.6.2');
   assert.equal(rootPackage.scripts['test:e2e:collaboration-db'], 'node --test scripts/collaboration-workflows-db.test.mjs');
   assert.equal(rootPackage.scripts['test:e2e:collaboration'], 'node scripts/collaboration-workflows-e2e.mjs');
   assert.match(await read('.env.example'), /LOCAL_SYNC_PACKAGE_VERSION=0\.13\.7/u);

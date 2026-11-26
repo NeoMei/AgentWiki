@@ -260,7 +260,10 @@ export class SyncV3PushSessionService {
           throw this.error('PAYLOAD_INVALID', 'Page body is not canonical');
         }
         const bytes = Buffer.byteLength(normalized, 'utf8');
-        if (bytes > limits.maxPageBytes || await contentHash(normalized) !== change.page.contentHash) {
+        if (bytes > limits.maxPageBytes) {
+          throw this.error('PAGE_TOO_LARGE', 'Page exceeds maxPageBytes');
+        }
+        if (await contentHash(normalized) !== change.page.contentHash) {
           throw this.error('ATTACHMENT_CONTENT_INVALID', 'Page body metadata is invalid');
         }
         bodyBytes += bytes;
@@ -373,6 +376,10 @@ export class SyncV3PushSessionService {
         throw this.error('BASE_STALE', 'Candidate base revision changed');
       }
       const candidate = this.applyChanges(base.candidate, changes);
+      const candidateBodyBytes = candidate.pages.reduce((sum, page) => sum + Buffer.byteLength(page.body, 'utf8'), 0);
+      if (candidateBodyBytes > this.capabilities.capabilitiesV3().maxClientTotalBodyBytes) {
+        throw this.error('SPACE_TOO_LARGE', 'Resulting Space exceeds the negotiated body limit');
+      }
       const exactDelta = treeRevisionDeltaV3({
         protocolVersion: '3', spaceId,
         folders: base.candidate.folders,

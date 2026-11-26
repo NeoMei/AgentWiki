@@ -540,6 +540,9 @@ export class PushSessionService {
               humanDeviceCredentialId: principal.credentialId,
             },
           });
+          if (BigInt(published.revisionBodyBytes) > BigInt(this.capabilitiesV2().maxClientTotalBodyBytes)) {
+            throw this.v2Error('SPACE_TOO_LARGE', 'Resulting Space exceeds the negotiated body limit');
+          }
           await tx.pushSession.update({
             where: { id: sessionId },
             data: {

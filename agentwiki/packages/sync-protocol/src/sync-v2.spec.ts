@@ -219,9 +219,9 @@ describe("Sync Protocol v2", () => {
     );
   });
 
-  it("keeps tree push limits at 100 changes and document-tree input at 2 MiB", async () => {
+  it("keeps tree push limits at 100 changes and document-tree input at 10 MiB", async () => {
     expect(TREE_SYNC_V2_LIMITS.maxPushChanges).toBe(100);
-    expect(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes).toBe(2 * 1024 * 1024);
+    expect(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes).toBe(10 * 1024 * 1024);
     expect(TREE_SYNC_V2_LIMITS.maxDeltaItems).toBeGreaterThan(100);
     await expect(partitionTreePushChangesV2(
       Array.from({ length: 101 }, (_, index) => ({ operation: "archive_folder" as const, folderId: `folder-${index}`, previousPath: `pages/folder-${index}` })),

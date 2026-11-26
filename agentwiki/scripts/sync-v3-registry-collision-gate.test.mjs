@@ -30,7 +30,7 @@ test('release manifests and the explicit registry command check only unpublished
     readFile(new URL('../packages/sync-protocol/package.json', import.meta.url), 'utf8').then(JSON.parse),
     readFile(new URL('../packages/local-sync/package.json', import.meta.url), 'utf8').then(JSON.parse),
   ]);
-  assert.equal(protocol.version, '0.6.1');
+  assert.equal(protocol.version, '0.6.2');
   assert.equal(localSync.version, '0.13.7');
   assert.equal(localSync.dependencies[protocol.name], '0.6.1');
   assert.equal(root.devDependencies.semver, '7.8.5');

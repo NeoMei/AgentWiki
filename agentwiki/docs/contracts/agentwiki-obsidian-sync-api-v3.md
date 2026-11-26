@@ -1,5 +1,7 @@
 # AgentWiki–Obsidian Sync API v3
 
+V3 uses the same [document size negotiation as V2](./agentwiki-obsidian-sync-api-v2.md). The negotiated limits apply throughout discovery, reads and the confirmed Push session.
+
 Status: local release-candidate contract for `@neomei/agentwiki-sync-protocol` 0.6.0. The package schemas and canonical hashing functions are normative; this document is the public HTTP map.
 
 ## Transport, authentication, and authorization

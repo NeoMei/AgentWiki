@@ -718,9 +718,13 @@ describe('Sync v3 candidate hard limits', () => {
     expect(() => assertSyncV3CandidateHardLimits({
       folders: [], pages: Array(15_001).fill(page), attachments: [],
     })).toThrow(expect.objectContaining({ syncCode: 'ATTACHMENT_CONTENT_INVALID' }));
+    const atLimit = 'x'.repeat(10 * 1024 * 1024);
     expect(() => assertSyncV3CandidateHardLimits({
-      folders: [], pages: [{ ...page, body: 'x'.repeat(2 * 1024 * 1024 + 1) }], attachments: [],
-    })).toThrow(expect.objectContaining({ syncCode: 'ATTACHMENT_CONTENT_INVALID' }));
+      folders: [], pages: [{ ...page, body: atLimit }], attachments: [],
+    })).not.toThrow();
+    expect(() => assertSyncV3CandidateHardLimits({
+      folders: [], pages: [{ ...page, body: atLimit + 'x' }], attachments: [],
+    })).toThrow(expect.objectContaining({ syncCode: 'SPACE_TOO_LARGE' }));
   });
 });
 

@@ -2,21 +2,39 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../../database/prisma.service';
+import { PAGE_CONTENT_JSON_MAX_BYTES, PAGE_CONTENT_MAX_BYTES } from '@agentwiki/shared';
 import type { SyncCapabilities } from '@neomei/agentwiki-sync-protocol';
 
-export const DEFAULT_SYNC_CAPABILITIES: SyncCapabilities = {
-  maxPageBytes: 1_048_576,
-  maxBatchBytes: 4_194_304,
+import {
+  LEGACY_SYNC_JSON_BYTES,
+  LEGACY_SYNC_PAGE_BYTES,
+  supportsLargeSyncDocuments,
+} from './sync-document-limits';
+
+const DEFAULT_SYNC_CAPABILITIES: SyncCapabilities = {
+  maxPageBytes: PAGE_CONTENT_MAX_BYTES,
+  maxBatchBytes: PAGE_CONTENT_JSON_MAX_BYTES,
   maxBatchItems: 100,
   maxChangeCount: 5_000,
   maxConfirmationBytes: 4_194_304,
   maxClientSpacePages: 5_000,
   maxClientManifestBytes: 4_194_304,
   maxClientTotalBodyBytes: 104_857_600,
-  maxResponseBytes: 4_194_304,
+  maxResponseBytes: PAGE_CONTENT_JSON_MAX_BYTES,
   maxPageItems: 100,
   pushSessionTtlSeconds: 900,
 };
+
+export function obsidianSyncCapabilities(): SyncCapabilities {
+  return supportsLargeSyncDocuments()
+    ? { ...DEFAULT_SYNC_CAPABILITIES }
+    : {
+      ...DEFAULT_SYNC_CAPABILITIES,
+      maxPageBytes: LEGACY_SYNC_PAGE_BYTES,
+      maxBatchBytes: LEGACY_SYNC_JSON_BYTES,
+      maxResponseBytes: LEGACY_SYNC_JSON_BYTES,
+    };
+}
 
 @Injectable()
 export class ObsidianCryptoService implements OnModuleInit {

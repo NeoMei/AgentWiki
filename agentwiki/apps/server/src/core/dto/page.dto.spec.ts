@@ -14,6 +14,26 @@ function transformCreateBody(input: object) {
   return productionPipe.transform(input, { type: 'body', metatype: CreatePageDto });
 }
 
+describe('Page body capacity', () => {
+  const limit = 10 * 1024 * 1024;
+  const atLimit = '中'.repeat(Math.floor(limit / 3)) + 'a';
+
+  it.each([
+    [CreatePageDto, { title: 'Large page', spaceId: 'space-1', expectedTreeRevision: '1' }],
+    [UpdatePageDto, { expectedUpdatedAt: '2026-07-27T08:00:00.000Z' }],
+  ])('accepts 10 MiB of UTF-8 body and rejects one byte more in %#', async (metatype, fields) => {
+    await expect(productionPipe.transform({ ...fields, content: atLimit }, {
+      type: 'body', metatype,
+    })).resolves.toBeDefined();
+    await expect(productionPipe.transform({
+      ...fields, content: atLimit.slice(0, -1) + '\r\n',
+    }, { type: 'body', metatype })).resolves.toBeDefined();
+    await expect(productionPipe.transform({ ...fields, content: atLimit + 'a' }, {
+      type: 'body', metatype,
+    })).rejects.toMatchObject({ status: 400 });
+  });
+});
+
 describe('CreatePageDto', () => {
   it.each([
     [{ title: 'Blank', spaceId: 'space-1', expectedTreeRevision: '0' }, true],

@@ -15,8 +15,8 @@ import { SavePageAsTemplateDialog } from '../page-templates/SavePageAsTemplateDi
 import type { CompositeTemplateCapabilities } from '../page-templates/compositeTemplateTypes';
 import { PageAgentBindingDialog } from '../page-templates/PageAgentBindingDialog';
 import { listPageTemplates } from '../page-templates/pageTemplateApi';
-import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
-import { truncateValidatorLength, validatorLength } from '../page-templates/validatorLength';
+import { exceedsPageContentLimit } from '@agentwiki/shared';
+import { truncateValidatorLength } from '../page-templates/validatorLength';
 import { listCompositeTemplates } from '../page-templates/compositeTemplateApi';
 import type { AssistRequest } from './AgentAssistPanel';
 const AgentSessionPanel = React.lazy(() => import('../agent-session/AgentSessionPanel').then((module) => ({ default: module.AgentSessionPanel })));
@@ -102,8 +102,6 @@ interface AttachmentRuntimeContext {
 }
 
 const PAGE_TITLE_LIMIT = 200;
-const exceedsPageContentLimit = (value: string) => value.length > PAGE_CONTENT_MAX_LENGTH
-  && validatorLength(value) > PAGE_CONTENT_MAX_LENGTH;
 
 const pageRevision = (page: Page) => JSON.stringify([
   page.updatedAt,
@@ -1042,7 +1040,7 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
     if (exceedsPageContentLimit(content)) {
       showStatus({
         kind: 'error',
-        text: t('editor.contentTooLong', { max: PAGE_CONTENT_MAX_LENGTH.toLocaleString(language) }),
+        text: t('editor.contentTooLong'),
       }, 'save', 5000);
       return;
     }

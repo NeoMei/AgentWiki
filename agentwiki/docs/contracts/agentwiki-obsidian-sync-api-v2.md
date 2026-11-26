@@ -18,7 +18,7 @@ Before v2 reads or publication, clients fetch `GET /api/sync/v2/capabilities`. I
 
 `SyncFolderV2` contains `folderId`, `parentFolderId`, `name`, canonical directory `path`, `sortOrder`, and RFC 3339 `updatedAt`. `SyncPageV2` contains `pageId`, `folderId`, canonical Markdown `path`, `title`, normalized `body`, `contentHash`, and `updatedAt`.
 
-All managed paths are under `pages/`. A Page's `folderId` and path directory must identify the same active Folder; `null` means the `pages/` root. Folder IDs and Page IDs are separate namespaces. Page body hashes use normalized LF Markdown. The hard limits are 100 changes per push and 2 MiB total active document body bytes.
+All managed paths are under `pages/`. A Page's `folderId` and path directory must identify the same active Folder; `null` means the `pages/` root. Folder IDs and Page IDs are separate namespaces. Page body hashes use normalized LF Markdown. The change limit is 100 per push. By default, the server advertises a 1 MiB single-page limit, a 2 MiB total active document body limit, and 4 MiB JSON batch, manifest and response budgets. Clients that support larger documents send `X-AgentWiki-Sync-Max-Page-Bytes: 10485760` on each Sync and device-session request. A supporting server then advertises 10 MiB for both a single page and total active document bodies, plus 64 MiB JSON batch, manifest and response budgets. The confirmation budget remains 4 MiB. Clients use the server's advertised values, including when an older server ignores the header.
 
 The immutable revision manifest is:
 

@@ -149,7 +149,7 @@ export function assertSyncV3CandidateHardLimits(candidate: SyncV3Candidate): voi
   );
   if (bodyBytes > TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes) {
     throw new SyncApiException(
-      'ATTACHMENT_CONTENT_INVALID',
+      'SPACE_TOO_LARGE',
       'Sync v3 Page bodies exceed the hard limit',
       undefined,
       '3',
@@ -310,8 +310,13 @@ export class SyncV3RevisionWriterService {
       }>;
     },
   ): Promise<SyncV3CandidateInspection> {
-    assertSyncV3CandidateHardLimits({ folders: source.folders, pages: source.pages.map((page) => ({
+    const preparedPages = source.pages.map((page) => ({
+      page,
+      body: normalizeMarkdown(page.body),
+    }));
+    assertSyncV3CandidateHardLimits({ folders: source.folders, pages: preparedPages.map(({ page, body }) => ({
       ...page,
+      body,
       contentHash: '0'.repeat(64),
       updatedAt: page.updatedAt.toISOString(),
       referencedAttachmentIds: [],
@@ -319,10 +324,6 @@ export class SyncV3RevisionWriterService {
     const blockers: SyncV3CandidateInspection['blockers'] = [];
     const syncPages: SyncPageV3[] = [];
     const referencedIds = new Set<string>();
-    const preparedPages = source.pages.map((page) => ({
-      page,
-      body: normalizeMarkdown(page.body),
-    }));
     const resolvedPages = await this.markdownResources.resolveReferencedAttachmentsBatch(
       preparedPages.map(({ page, body }) => ({
         spaceId,

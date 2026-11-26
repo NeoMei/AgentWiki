@@ -4,6 +4,7 @@ import { EditorSelection } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { Link, MemoryRouter, Outlet, Route, RouterProvider, Routes, createMemoryRouter, useLocation, useNavigate, useNavigationType, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { exceedsPageContentLimit } from '@agentwiki/shared';
 import api from '../../api/client';
 import { LanguageSwitcher } from '../../components/LanguageSwitcher';
 import { LanguageProvider } from '../../context/LanguageContext';
@@ -55,6 +56,10 @@ const socketMock = vi.hoisted(() => {
   return { handlers, socket };
 });
 
+vi.mock('@agentwiki/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentwiki/shared')>();
+  return { ...actual, exceedsPageContentLimit: vi.fn(actual.exceedsPageContentLimit) };
+});
 vi.mock('../../api/client', () => ({ default: { get: vi.fn(), patch: vi.fn(), post: vi.fn(), delete: vi.fn() } }));
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ user: authMock.user }),
@@ -1891,12 +1896,13 @@ describe('PageEditor remote update safety', () => {
     queuePages({ data: page() });
     renderEditor();
     const save = await screen.findByRole('button', { name: 'Save' });
-    const longBody = ('正文'.repeat(50) + '\n').repeat(2_000);
+    const longBody = 'Oversized local draft';
+    vi.mocked(exceedsPageContentLimit).mockReturnValueOnce(true);
 
     editContent(longBody);
     fireEvent.click(save);
 
-    expect(await screen.findByText(/exceeds the 200,000 character limit/u)).toBeVisible();
+    expect(await screen.findByText(/exceeds the 10 MiB text limit/u)).toBeVisible();
     expect(contentEditorValue()).toBe(longBody);
     expect(pagePatchCalls()).toHaveLength(0);
   });

@@ -17,11 +17,11 @@ const DecimalCountSchema = z.string().regex(/^(0|[1-9][0-9]*)$/).refine(
 export const SYNC_PROTOCOL_V2 = "2" as const;
 export const TREE_SYNC_V2_LIMITS = {
   maxPushChanges: 100,
-  maxDocumentTreeBytes: 2 * 1024 * 1024,
+  maxDocumentTreeBytes: 10 * 1024 * 1024,
   maxClientSpaceFolders: CONTENT_TREE_HARD_LIMITS.maxActiveFolders,
   maxSnapshotObjects: 15_000,
   maxDeltaItems: 15_000,
-  maxResponseBytes: 4 * 1024 * 1024,
+  maxResponseBytes: 64 * 1024 * 1024,
   capabilitiesDiscoveryBytes: 64 * 1024,
 } as const;
 

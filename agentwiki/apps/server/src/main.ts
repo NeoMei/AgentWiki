@@ -4,9 +4,11 @@ import { HttpAdapterHost } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { installBigIntJsonSerialization } from './bigint-json';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter';
-import { json } from 'express';
+import { PAGE_CONTENT_JSON_MAX_BYTES } from '@agentwiki/shared';
+import { json, type NextFunction, type Request, type Response } from 'express';
 import { randomUUID } from 'crypto';
 import { isIP } from 'node:net';
+import { syncDocumentLimitsMiddleware } from './integrations/obsidian/sync-document-limits';
 
 type ApiListenApplication = {
   listen: (port: string | number, host?: string) => Promise<unknown>;
@@ -30,6 +32,21 @@ export async function listenApi(
   else await app.listen(port, host);
 }
 
+const pageContentRoutes = [
+  /^\/api\/pages(?:\/[^/]+)?\/?$/iu,
+  /^\/api\/spaces\/[^/]+\/attachments\/import-page-images\/?$/iu,
+  /^\/api\/sync\/v[123]\/spaces\/[^/]+\/push-sessions\/[^/]+\/batches\/[^/]+\/?$/iu,
+];
+const parseStandardJson = json({ limit: '11mb' });
+const parsePageContentJson = json({ limit: PAGE_CONTENT_JSON_MAX_BYTES });
+
+export function jsonParser(request: Request, response: Response, next: NextFunction) {
+  const isWrite = ['POST', 'PATCH', 'PUT'].includes(request.method);
+  const parse = isWrite && pageContentRoutes.some((route) => route.test(request.path))
+    ? parsePageContentJson : parseStandardJson;
+  return parse(request, response, next);
+}
+
 export async function bootstrap() {
   installBigIntJsonSerialization();
   process.env.PROCESS_ROLE ||= 'api';
@@ -37,8 +54,8 @@ export async function bootstrap() {
   if (process.env.NODE_ENV === 'production') {
     app.getHttpAdapter().getInstance().set('trust proxy', 1);
   }
-  // Allow up to 11 MB JSON body (10 MB source content + JSON overhead)
-  app.use(json({ limit: '11mb' }));
+  app.use(syncDocumentLimitsMiddleware);
+  app.use(jsonParser);
   app.use((request: any, response: any, next: () => void) => {
     request.requestId = request.headers['x-request-id'] || randomUUID();
     response.setHeader('x-request-id', request.requestId);
