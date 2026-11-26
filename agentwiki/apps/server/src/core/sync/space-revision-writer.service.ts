@@ -307,6 +307,7 @@ export class SpaceRevisionWriterService {
       const hash = await contentHash(body);
       if (!ensuredContentHashes.has(hash)) {
         await tx.syncPageContentRow.upsert({
+          select: { contentHash: true },
           where: { contentHash: hash },
           create: {
             contentHash: hash,
@@ -316,6 +317,7 @@ export class SpaceRevisionWriterService {
           update: {},
         });
         await tx.legacyPageBodyRow.upsert({
+          select: { contentHash: true },
           where: { contentHash: hash },
           create: { contentHash: hash, body },
           update: {},
