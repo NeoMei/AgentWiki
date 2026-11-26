@@ -194,16 +194,10 @@ export class PushSessionService {
     if (input.confirmationByteLength > capabilities.maxConfirmationBytes) {
       throw this.v2Error('BATCH_TOO_LARGE', 'confirmationByteLength exceeds the negotiated limit');
     }
-    if (input.totalBodyBytes > capabilities.maxClientTotalBodyBytes) {
-      throw this.v2Error('SPACE_TOO_LARGE', 'totalBodyBytes exceeds the v2 document-tree limit');
-    }
     if (input.changeCount === 0 && input.totalBodyBytes !== 0) {
       throw this.v2Error('PAYLOAD_INVALID', 'totalBodyBytes must be zero when changeCount is zero');
     }
     await this.assertSessionCreateRate(principal, spaceId);
-    if (input.capabilitiesHash !== await this.capabilityHashV2()) {
-      throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
-    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         const lockedTx = await this.contentTree.lockSyncMutationSpace(tx, spaceId);
@@ -221,6 +215,12 @@ export class PushSessionService {
             throw this.v2Error('IDEMPOTENCY_MISMATCH', 'An unpublished session cannot be recovered by a rotated credential');
           }
           return this.sessionResponseV2(existing);
+        }
+        if (input.capabilitiesHash !== await this.capabilityHashV2()) {
+          throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
+        }
+        if (input.totalBodyBytes > capabilities.maxClientTotalBodyBytes) {
+          throw this.v2Error('SPACE_TOO_LARGE', 'totalBodyBytes exceeds the v2 document-tree limit');
         }
         const head = await lockedTx.spaceKnowledgeRevision.findFirst({
           where: { spaceId }, orderBy: { sequence: 'desc' }, select: { id: true },

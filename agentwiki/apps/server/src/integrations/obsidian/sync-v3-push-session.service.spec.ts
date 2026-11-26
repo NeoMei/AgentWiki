@@ -217,6 +217,17 @@ async function stageChanges(
 }
 
 describe('SyncV3PushSessionService', () => {
+  it('recovers a lost create response after an older V3 client upgrades', async () => {
+    const h = harness();
+    const created = await h.service.create(principal(), 'space-1', request());
+    h.capabilities.hashV3.mockImplementation(async (large?: boolean) =>
+      large === false ? capabilityHash : 'f'.repeat(64));
+
+    await expect(h.service.create(principal(), 'space-1', request()))
+      .resolves.toMatchObject({ sessionId: created.sessionId });
+    expect(h.sessions).toHaveLength(1);
+  });
+
   it('stages a 10 MiB page with the opted-in service capabilities', async () => {
     const h = harness();
     const capabilities = new SyncCapabilitiesService({} as any);

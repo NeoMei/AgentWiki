@@ -202,6 +202,27 @@ describe('sync v3 HTTP contract', () => {
     expect(revisions.delta).toHaveBeenCalledWith(expect.anything(), 'space-1', '0', undefined, 1);
   });
 
+  it('reports a V3 Space capacity error for an over-limit Push declaration', async () => {
+    const response = await fetch(`${baseUrl}/sync/v3/spaces/space-1/push-sessions`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer device-secret',
+        'Content-Type': 'application/json',
+        'X-AgentWiki-Sync-Max-Page-Bytes': '10485760',
+      },
+      body: JSON.stringify({
+        protocolVersion: '3', baseRevision: 'rev-1',
+        idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        capabilitiesHash: 'c'.repeat(64), confirmationHash: 'd'.repeat(64),
+        confirmationByteLength: 1, changeCount: 1, totalBodyBytes: 10_485_761,
+        attachmentCount: 0, transferBlobBytes: 0, blobRequirements: [],
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(SyncV3ErrorEnvelopeSchema.parse(await response.json()).error.code).toBe('SPACE_TOO_LARGE');
+    expect(pushSessions.create).not.toHaveBeenCalled();
+  });
+
   it('serves strict create, batch, finalize, status, and abort Push routes', async () => {
     const auth = { Authorization: 'Bearer device-secret', 'Content-Type': 'application/json' };
     const sessionId = '11111111-1111-4111-8111-111111111111';
