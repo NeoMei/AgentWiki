@@ -205,12 +205,13 @@ export class SearchService implements OnModuleInit, OnModuleDestroy {
         if (vectorExists?.exists) return { page, contentHash, skipped: true };
       }
       await tx.pageSearchDocument.upsert({
+        select: { pageId: true },
         where: { pageId },
         create: { pageId, text, contentHash },
         update: { text, contentHash, indexedAt: new Date() },
       });
       return { page, contentHash, skipped: false };
-    });
+    }, { timeout: 30_000 });
     if (!snapshot) return { lexicalIndexed: false, semanticIndexed: false };
     if (snapshot.skipped) return { lexicalIndexed: true, semanticIndexed: true, skipped: true };
     const { page, contentHash } = snapshot;

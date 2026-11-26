@@ -12,7 +12,7 @@ import { randomUUID } from 'crypto';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
 import { PageTemplateService } from '../../page-templates/page-template.service';
 import { AuthorizationService, type Principal } from '../authorization/authorization.service';
-import { ContentTreeService } from '../../content-tree/content-tree.service';
+import { ContentTreeService, MUTATION_TRANSACTION_TIMEOUT_MS } from '../../content-tree/content-tree.service';
 import { ContentTreeError } from '../../content-tree/content-tree.types';
 
 export interface PaginatedResult<T> {
@@ -203,7 +203,7 @@ export class PageService {
       // would refresh its contentHash before indexPage runs and defeat the
       // hash short-circuit.
       return { ...created, syncPath: placement.syncPath, path: placement.syncPath };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
 
     try {
       await this.searchService.indexPage(page.id);
@@ -484,7 +484,7 @@ export class PageService {
         });
       }
       return { ...result, path: result.syncPath };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
 
     try {
       await this.searchService.indexPage(id);
@@ -632,7 +632,7 @@ export class PageService {
         actor: { userId: principal.userId },
       });
       return { ...updated, path: updated.syncPath };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
 
     try {
       await this.searchService.indexPage(pageId);
@@ -721,7 +721,7 @@ export class PageService {
       });
       await tx.pageSearchDocument.deleteMany({ where: { pageId: archived.id } });
       return { ...archived, path: archived.syncPath };
-    });
+    }, { timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
 
     try {
       await this.searchService.deletePageIndex(id);
