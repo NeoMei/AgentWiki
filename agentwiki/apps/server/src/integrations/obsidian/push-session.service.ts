@@ -30,7 +30,7 @@ import type { StructuralPageChange } from '../../core/sync/space-revision-writer
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { SearchService } from '../../core/search/search.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
-import { ContentTreeService } from '../../content-tree/content-tree.service';
+import { ContentTreeService, MUTATION_TRANSACTION_TIMEOUT_MS } from '../../content-tree/content-tree.service';
 import { ContentTreeError, type ContentTreeErrorCode } from '../../content-tree/content-tree.types';
 import { lockContentStore } from '../../core/sync/content-store-lock';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
@@ -471,7 +471,7 @@ export class PushSessionService {
             protocolVersion: '2' as const, sessionId, batchIndex: batch.batchIndex,
             batchHash: batch.batchHash, receipt, receivedBatchCount: session.receivedBatchCount + 1,
           };
-        }, { isolationLevel: 'Serializable' });
+        }, { isolationLevel: 'Serializable', timeout: MUTATION_TRANSACTION_TIMEOUT_MS });
       } catch (error) {
         if (this.isSerializationFailure(error) && attempt < 2) continue;
         throw error;
