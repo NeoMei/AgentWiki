@@ -8,7 +8,7 @@ import { PAGE_CONTENT_JSON_MAX_BYTES } from '@agentwiki/shared';
 import { json, type NextFunction, type Request, type Response } from 'express';
 import { randomUUID } from 'crypto';
 import { isIP } from 'node:net';
-import { syncDocumentLimitsMiddleware } from './integrations/obsidian/sync-document-limits';
+import { supportsLargeSyncDocuments, syncDocumentLimitsMiddleware } from './integrations/obsidian/sync-document-limits';
 
 type ApiListenApplication = {
   listen: (port: string | number, host?: string) => Promise<unknown>;
@@ -32,18 +32,19 @@ export async function listenApi(
   else await app.listen(port, host);
 }
 
-const pageContentRoutes = [
-  /^\/api\/pages(?:\/[^/]+)?\/?$/iu,
-  /^\/api\/spaces\/[^/]+\/attachments\/import-page-images\/?$/iu,
-  /^\/api\/sync\/v[123]\/spaces\/[^/]+\/push-sessions\/[^/]+\/batches\/[^/]+\/?$/iu,
-];
+const pageCreate = /^\/api\/pages\/?$/iu;
+const pageUpdate = /^\/api\/pages\/[^/]+\/?$/iu;
+const importPageImages = /^\/api\/spaces\/[^/]+\/attachments\/import-page-images\/?$/iu;
+const syncBatch = /^\/api\/sync\/v[123]\/spaces\/[^/]+\/push-sessions\/[^/]+\/batches\/[^/]+\/?$/iu;
 const parseStandardJson = json({ limit: '11mb' });
 const parsePageContentJson = json({ limit: PAGE_CONTENT_JSON_MAX_BYTES });
 
 export function jsonParser(request: Request, response: Response, next: NextFunction) {
-  const isWrite = ['POST', 'PATCH', 'PUT'].includes(request.method);
-  const parse = isWrite && pageContentRoutes.some((route) => route.test(request.path))
-    ? parsePageContentJson : parseStandardJson;
+  const { method, path } = request;
+  const acceptsLargeBody = (method === 'POST' && (pageCreate.test(path) || importPageImages.test(path)))
+    || (method === 'PATCH' && pageUpdate.test(path))
+    || (method === 'PUT' && syncBatch.test(path) && supportsLargeSyncDocuments());
+  const parse = acceptsLargeBody ? parsePageContentJson : parseStandardJson;
   return parse(request, response, next);
 }
 

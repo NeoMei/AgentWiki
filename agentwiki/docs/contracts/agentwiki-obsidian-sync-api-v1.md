@@ -538,7 +538,9 @@ interface SyncCapabilities {
 }
 ```
 
-capability 的 v1 数值边界固定为：`maxPageBytes = 1,048,576`；`maxBatchItems` 为 `1..100`；`maxBatchBytes/maxResponseBytes/maxConfirmationBytes` 为 `1,048,576..4,194,304`，且 maxBatchBytes/maxResponseBytes 必须能容纳一个 maxPageBytes 项及 envelope 开销；`maxPageItems` 为 `1..200`；`maxChangeCount = 5,000`；`maxClientSpacePages = 5,000`；`maxClientManifestBytes = 4,194,304`；`maxClientTotalBodyBytes = 104,857,600`；`pushSessionTtlSeconds` 为 `900..86,400`。exchange/session 响应超出这些 hard bounds 属于协议错误，插件不能盲信或扩大本地资源预算。
+未发送大文档协商请求头时，capability 的 v1 数值边界为：`maxPageBytes = 1,048,576`；`maxBatchItems` 为 `1..100`；`maxBatchBytes/maxResponseBytes/maxConfirmationBytes` 为 `1,048,576..4,194,304`，且 maxBatchBytes/maxResponseBytes 必须能容纳一个 maxPageBytes 项及 envelope 开销；`maxPageItems` 为 `1..200`；`maxChangeCount = 5,000`；`maxClientSpacePages = 5,000`；`maxClientManifestBytes = 4,194,304`；`maxClientTotalBodyBytes = 104,857,600`；`pushSessionTtlSeconds` 为 `900..86,400`。exchange/session 响应超出这些 hard bounds 属于协议错误，插件不能盲信或扩大本地资源预算。
+
+发送 `X-AgentWiki-Sync-Max-Page-Bytes: 10485760` 后，支持大文档的服务端会返回 10 MiB 单页正文上限，以及 64 MiB 批次和响应预算。V1 的确认、目录清单和总正文预算沿用前述值。
 
 ### 8.2 激活当前设备凭据
 
@@ -927,7 +929,7 @@ finalize 已提交但客户端未收到响应时，该端点必须返回持久�
 - AgentWiki 产品不设置 Space 总页数、正文总量或 manifest 字节硬上限；但 Obsidian 插件 v1 的移动端有界实现只绑定 pageCount、revisionBodyBytes 和 revisionManifestByteLength 分别不超过三个 client capability 的 Space。Space list/head/Snapshot/Delta/finalize 返回对应固定 revision 指标；任一超限时插件只显示不兼容诊断，不继续下载正文、写 Vault 或建立映射。
 - 服务端可以执行租户配额，但必须通过结构化 `QUOTA_EXCEEDED` 返回当前限制。
 - 单页最大正文为 1 MiB。
-- 单批次和单响应限制由 exchange/session capability 返回；服务端 v1 默认均为 4 MiB，客户端不得固化更大的值。
+- 单批次和单响应限制由 exchange/session capability 返回；旧客户端默认均为 4 MiB，大文档客户端以实际协商结果为准。
 - 单次 Push 最多 5,000 changes，confirmation canonical bytes 最多 4 MiB；两项都通过 capability 返回且服务端 v1 不得配置得更大。超过 change/confirmation 限制返回 `BATCH_TOO_LARGE`；结果 pageCount 超限返回 `SPACE_TOO_LARGE`。插件阻塞该 Space 的整库 Push 并提示缩小映射；首版不以自动拆分或部分 Push 改变用户确认边界。
 - 首版端到端验收基线：单 Space 5,000 页、规范化正文总计 100 MiB。
 - Snapshot、Delta 和上传必须以有界批次处理；服务端和客户端都不得要求把完整 100 MiB payload 同时保存在一个 JSON 对象中。

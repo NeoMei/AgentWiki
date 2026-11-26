@@ -1113,15 +1113,19 @@ export const PageEditor: React.FC<{ workspaceRef?: React.MutableRefObject<Markdo
         || routeGenerationRef.current !== requestedRouteGeneration
         || activePageIdRef.current !== requestedId
       ) return;
-      const missingAttachments = err.response?.data?.error?.code === 'ATTACHMENT_MISSING';
+      const errorCode = err.response?.data?.error?.code;
+      const missingAttachments = errorCode === 'ATTACHMENT_MISSING';
+      const spaceTooLarge = errorCode === 'SPACE_TOO_LARGE';
       showStatus({
         kind: 'error',
         text: missingAttachments
           ? t('attachment.importSaveHelp')
-          : t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
+          : spaceTooLarge
+            ? t('editor.spaceContentTooLarge')
+            : t('editor.saveFailed', { message: err.response?.data?.message || t('common.notAvailable') }),
       }, 'save', 5000);
       if ([401, 403, 404].includes(err.response?.status)) { readableUserIdRef.current = null; invalidateWriteCapability(); }
-      if (err.response?.status === 409 && !missingAttachments) {
+      if (err.response?.status === 409 && !missingAttachments && !spaceTooLarge) {
         dismissedRemoteRevisionRef.current = null;
         void loadPage(false, true);
       }

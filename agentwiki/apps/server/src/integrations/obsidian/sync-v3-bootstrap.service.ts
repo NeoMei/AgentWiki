@@ -11,6 +11,11 @@ import {
 } from '../../core/sync/sync-v3-revision-writer.service';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
+import {
+  LEGACY_SYNC_DOCUMENT_TREE_BYTES,
+  LEGACY_SYNC_PAGE_BYTES,
+  supportsLargeSyncDocuments,
+} from './sync-document-limits';
 
 export interface BootstrapPreview {
   protocolVersion: '3';
@@ -45,6 +50,7 @@ export class SyncV3BootstrapService {
       (tx) => this.v3Writer.inspectCurrentLocked(tx as any, spaceId),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+    this.assertClientBudget(inspection);
     return this.previewEnvelope(inspection);
   }
 
@@ -91,6 +97,7 @@ export class SyncV3BootstrapService {
           '3',
         );
       }
+      this.assertClientBudget(inspection);
       const result = await this.v3Writer.advanceV3Locked(
         lockedTx,
         spaceId,
@@ -121,6 +128,17 @@ export class SyncV3BootstrapService {
       maxWait: 10_000,
       timeout: 30_000,
     });
+  }
+
+  private assertClientBudget(inspection: SyncV3CandidateInspection) {
+    if (supportsLargeSyncDocuments()) return;
+    let bytes = 0;
+    for (const page of inspection.candidate.pages) {
+      const size = Buffer.byteLength(page.body, 'utf8');
+      if (size > LEGACY_SYNC_PAGE_BYTES || (bytes += size) > LEGACY_SYNC_DOCUMENT_TREE_BYTES) {
+        throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'Upgrade the plugin to sync this Space', undefined, '3');
+      }
+    }
   }
 
   private previewEnvelope(inspection: SyncV3CandidateInspection): BootstrapPreview {

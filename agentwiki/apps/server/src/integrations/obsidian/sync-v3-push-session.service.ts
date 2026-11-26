@@ -40,6 +40,7 @@ import { RedisService } from '../../database/redis.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
 import { ObsidianCryptoService } from './obsidian-crypto.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
+import { supportsLargeSyncDocuments } from './sync-document-limits';
 import { SyncApiException } from './sync-error';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
@@ -78,7 +79,12 @@ export class SyncV3PushSessionService {
     rawInput: CreateTreePushSessionRequestV3,
   ) {
     const parsed = CreateTreePushSessionRequestV3Schema.safeParse(rawInput);
-    if (!parsed.success) throw this.error('PAYLOAD_INVALID', 'Invalid v3 Push session request');
+    if (!parsed.success) {
+      if (parsed.error.issues.every((issue) => issue.code === 'too_big' && issue.path[0] === 'totalBodyBytes')) {
+        throw this.error('SPACE_TOO_LARGE', 'Page bodies exceed the protocol limit');
+      }
+      throw this.error('PAYLOAD_INVALID', 'Invalid v3 Push session request');
+    }
     const input = parsed.data;
     const limits = this.capabilities.capabilitiesV3();
     if (input.changeCount > limits.maxChangeCount) {
@@ -223,10 +229,7 @@ export class SyncV3PushSessionService {
       if (session.status !== 'uploading') {
         throw this.error('PUSH_SESSION_STATE_INVALID', 'Push session does not accept batches');
       }
-      if (session.capabilitiesHash !== await this.capabilities.hashV3()) {
-        throw this.error('CAPABILITIES_CHANGED', 'Server capabilities changed');
-      }
-      const limits = this.capabilities.capabilitiesV3();
+      const limits = await this.sessionCapabilities(session);
       if (batch.changes.length > limits.maxBatchItems
         || canonicalBytes(batch).byteLength > limits.maxBatchBytes) {
         throw this.error('BATCH_TOO_LARGE', 'Batch exceeds negotiated limits');
@@ -341,9 +344,7 @@ export class SyncV3PushSessionService {
         throw this.error('CONFIRMATION_MISMATCH', 'Confirmation hash does not match');
       }
       await locked.pushSession.update({ where: { id: sessionId }, data: { status: 'finalizing' } });
-      if (session.capabilitiesHash !== await this.capabilities.hashV3()) {
-        throw this.error('CAPABILITIES_CHANGED', 'Server capabilities changed');
-      }
+      const limits = await this.sessionCapabilities(session);
       const head = await locked.spaceKnowledgeRevision.findFirst({
         where: { spaceId }, orderBy: { sequence: 'desc' },
       });
@@ -377,7 +378,7 @@ export class SyncV3PushSessionService {
       }
       const candidate = this.applyChanges(base.candidate, changes);
       const candidateBodyBytes = candidate.pages.reduce((sum, page) => sum + Buffer.byteLength(page.body, 'utf8'), 0);
-      if (candidateBodyBytes > this.capabilities.capabilitiesV3().maxClientTotalBodyBytes) {
+      if (candidateBodyBytes > limits.maxClientTotalBodyBytes) {
         throw this.error('SPACE_TOO_LARGE', 'Resulting Space exceeds the negotiated body limit');
       }
       const exactDelta = treeRevisionDeltaV3({
@@ -479,6 +480,17 @@ export class SyncV3PushSessionService {
       return false;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
     if (expired) throw this.error('PUSH_SESSION_EXPIRED', 'Push session expired');
+  }
+
+  private async sessionCapabilities(session: SessionRow) {
+    const requestedLarge = supportsLargeSyncDocuments();
+    if (session.capabilitiesHash === await this.capabilities.hashV3()) {
+      return this.capabilities.capabilitiesV3();
+    }
+    if (session.capabilitiesHash === await this.capabilities.hashV3(!requestedLarge)) {
+      return this.capabilities.capabilitiesV3(!requestedLarge);
+    }
+    throw this.error('CAPABILITIES_CHANGED', 'Server capabilities changed');
   }
 
   private async revalidateStaging(tx: any, session: SessionRow) {

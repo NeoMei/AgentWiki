@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type { AddressInfo } from 'node:net';
 import { NestFactory } from '@nestjs/core';
 import { bootstrap, jsonParser, listenApi, resolveApiListenHost } from './main';
+import { syncDocumentLimitsMiddleware } from './integrations/obsidian/sync-document-limits';
 
 jest.mock('@nestjs/core', () => {
   const actual = jest.requireActual<typeof import('@nestjs/core')>('@nestjs/core');
@@ -109,6 +110,7 @@ describe('API listen address', () => {
 
 it('allows JSON escaping overhead for a 10 MiB document only on content write routes', async () => {
   const app = express();
+  app.use(syncDocumentLimitsMiddleware);
   app.use(jsonParser);
   app.use((request, response) => response.json({ bytes: Buffer.byteLength(request.body.content) }));
   app.use((error: { status: number }, _request: Request, response: Response, _next: NextFunction) => {
@@ -129,6 +131,20 @@ it('allows JSON escaping overhead for a 10 MiB document only on content write ro
     const unrelated = await fetch(`${url}/api/other`, init);
     expect(unrelated.status).toBe(413);
     await unrelated.text();
+
+    const syncBatch = `${url}/api/sync/v3/spaces/space-1/push-sessions/session-1/batches/0`;
+    const syncHeaders = { 'Content-Type': 'application/json' };
+    const syncBody = JSON.stringify({ content: '"'.repeat(6 * 1024 * 1024) });
+    const oldClient = await fetch(syncBatch, { method: 'PUT', headers: syncHeaders, body: syncBody });
+    expect(oldClient.status).toBe(413);
+    await oldClient.text();
+    const largeClient = await fetch(syncBatch, {
+      method: 'PUT',
+      headers: { ...syncHeaders, 'X-AgentWiki-Sync-Max-Page-Bytes': '10485760' },
+      body: syncBody,
+    });
+    expect(largeClient.status).toBe(200);
+    await expect(largeClient.json()).resolves.toEqual({ bytes: 6 * 1024 * 1024 });
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));

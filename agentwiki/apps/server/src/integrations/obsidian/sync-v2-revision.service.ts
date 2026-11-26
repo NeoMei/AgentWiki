@@ -17,6 +17,7 @@ import {
 } from '@neomei/agentwiki-sync-protocol';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
+import { LEGACY_SYNC_DOCUMENT_TREE_BYTES, LEGACY_SYNC_PAGE_BYTES, supportsLargeSyncDocuments } from './sync-document-limits';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import {
@@ -109,6 +110,7 @@ export class SyncV2RevisionService {
       afterKey = payload.lastPageId;
     }
     const loaded = await this.consistentRead((tx) => this.loadRevision(tx, spaceId, revision));
+    this.assertClientBudget(loaded);
     const entries = [
       ...loaded.manifest.folders.map((folder) => ({ key: `folder:${folder.folderId}`, folder })),
       ...loaded.manifest.pages.map((page) => ({ key: `page:${page.pageId}`, page })),
@@ -120,23 +122,28 @@ export class SyncV2RevisionService {
       this.capabilities.capabilitiesV2().maxResponseBytes,
       TREE_SYNC_V2_LIMITS.maxResponseBytes,
     );
+    let itemsBytes = 0;
+    const includedKinds = new Set<string>();
     for (let index = start; index < entries.length && selected.length < limit; index += 1) {
-      const candidate = [...selected, entries[index]!];
-      const hasMore = index + 1 < entries.length;
-      const nextCursor = hasMore
+      const entry = entries[index]!;
+      const nextCursor = index + 1 < entries.length
         ? this.encodeCursor({
-          kind: 'snapshot-v2', spaceId, revision: loaded.revision,
-          lastPageId: candidate[candidate.length - 1]!.key,
+          kind: 'snapshot-v2', spaceId, revision: loaded.revision, lastPageId: entry.key,
         })
         : null;
-      const response = this.snapshotEnvelope(metadata, candidate, nextCursor);
-      if (Buffer.byteLength(JSON.stringify(response), 'utf8') > maxBytes) {
+      const kind = 'folder' in entry ? 'folder' : 'page';
+      const item = 'folder' in entry ? entry.folder : entry.page;
+      const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8') + (includedKinds.has(kind) ? 1 : 0);
+      const envelopeBytes = Buffer.byteLength(JSON.stringify(this.snapshotEnvelope(metadata, [], nextCursor)), 'utf8');
+      if (itemsBytes + itemBytes + envelopeBytes > maxBytes) {
         if (selected.length === 0) {
           throw new SyncApiException('SPACE_TOO_LARGE', 'One snapshot item exceeds maxResponseBytes', undefined, '2');
         }
         break;
       }
-      selected.push(entries[index]!);
+      selected.push(entry);
+      includedKinds.add(kind);
+      itemsBytes += itemBytes;
     }
     const consumed = start + selected.length;
     const nextCursor = consumed < entries.length
@@ -188,21 +195,24 @@ export class SyncV2RevisionService {
     };
     const selected: TreeDeltaItemV2[] = [];
     const maxBytes = Math.min(capabilities.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes);
+    this.assertClientBudget(to);
+    let itemsBytes = 0;
     for (let index = start; index < items.length && selected.length < limit; index += 1) {
-      const candidate = [...selected, items[index]!];
-      const hasMore = index + 1 < items.length;
-      const nextCursor = hasMore ? this.encodeCursor({
+      const entry = items[index]!;
+      const nextCursor = index + 1 < items.length ? this.encodeCursor({
         kind: 'delta-v2', spaceId, revision: to.revision, fromRevision: from.revision,
         lastPageId: String(index),
       }) : null;
-      const response = { ...metadata, items: candidate, nextCursor };
-      if (Buffer.byteLength(JSON.stringify(response), 'utf8') > maxBytes) {
+      const itemBytes = Buffer.byteLength(JSON.stringify(entry), 'utf8') + (selected.length > 0 ? 1 : 0);
+      const envelopeBytes = Buffer.byteLength(JSON.stringify({ ...metadata, items: [], nextCursor }), 'utf8');
+      if (itemsBytes + itemBytes + envelopeBytes > maxBytes) {
         if (selected.length === 0) {
           throw new SyncApiException('SPACE_TOO_LARGE', 'One delta item exceeds maxResponseBytes', undefined, '2');
         }
         break;
       }
-      selected.push(items[index]!);
+      selected.push(entry);
+      itemsBytes += itemBytes;
     }
     const consumed = start + selected.length;
     const nextCursor = consumed < items.length ? this.encodeCursor({
@@ -531,6 +541,17 @@ export class SyncV2RevisionService {
   private snapshotMetadata(spaceId: string, loaded: LoadedRevision) {
     const { publishedAt: _publishedAt, ...head } = this.headEnvelope(spaceId, loaded);
     return head;
+  }
+
+  private assertClientBudget(revision: {
+    revisionBodyBytes: number;
+    manifest: { pages: ReadonlyArray<{ body: string }> };
+  }) {
+    if (supportsLargeSyncDocuments()) return;
+    if (revision.revisionBodyBytes > LEGACY_SYNC_DOCUMENT_TREE_BYTES
+      || revision.manifest.pages.some((page) => Buffer.byteLength(page.body, 'utf8') > LEGACY_SYNC_PAGE_BYTES)) {
+      throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'Upgrade the plugin to sync this Space', undefined, '2');
+    }
   }
 
   private snapshotEnvelope(

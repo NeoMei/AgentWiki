@@ -1007,12 +1007,15 @@ test('direct post-deploy health requires the JSON storage signal', async () => {
 });
 
 test('Nginx applies the smallest whole-MiB safe multipart allowance', async () => {
-  const nginx = shellWithoutComments(await read('deploy/nginx/agentwiki.conf'));
-  const values = [...nginx.matchAll(/\bclient_max_body_size\s+([^;]+);/gu)].map((match) => match[1].trim());
-  assert.deepEqual(values, ['11m', '64m', '64m']);
-  assert.match(nginx, /client_max_body_size 11m;[\s\S]*location ~\* \^\/api\/\(pages/u);
-  assert.doesNotMatch(nginx, /location[^\n]+(?:\/attachments\/?\s|\/blobs\/)[^\n]*\{\s*client_max_body_size 64m/u);
-  assert.doesNotMatch(nginx, /client_max_body_size\s+0\s*;/u);
+  for (const config of ['deploy/nginx/agentwiki.conf', 'apps/client/nginx.conf']) {
+    const nginx = shellWithoutComments(await read(config));
+    const values = [...nginx.matchAll(/\bclient_max_body_size\s+([^;]+);/gu)]
+      .map((match) => match[1].trim());
+    assert.deepEqual(values.sort(), ['11m', '64m', '64m'], config);
+    assert.match(nginx, /client_max_body_size 11m;[\s\S]*location ~\* \^\/api\/\(pages/u, config);
+    assert.doesNotMatch(nginx, /location[^\n]+(?:\/attachments\/?\s|\/blobs\/)[^\n]*\{\s*client_max_body_size 64m/u, config);
+    assert.doesNotMatch(nginx, /client_max_body_size\s+0\s*;/u, config);
+  }
 });
 
 test('environment examples expose every bounded attachment setting', async () => {

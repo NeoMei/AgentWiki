@@ -1417,7 +1417,7 @@ export class ContentTreeService {
     if (!revision) throw new ContentTreeError('CONTENT_TREE_CONFLICT', 'Published revision could not be read back');
     const folderCount = await lockedTx.syncRevisionFolderRow.count({ where: { revisionId: revision.id } });
     if (revision.revisionBodyBytes > BigInt(TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes)) {
-      throw new ContentTreeError('FOLDER_MUTATION_LIMIT', 'Resulting v2 document tree exceeds the body limit');
+      throw new ContentTreeError('CONTENT_TREE_BODY_LIMIT', 'Resulting v2 document tree exceeds the body limit');
     }
     const publishedAt = new Date();
     await lockedTx.changeSet.update({

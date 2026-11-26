@@ -25,8 +25,8 @@ const DEFAULT_SYNC_CAPABILITIES: SyncCapabilities = {
   pushSessionTtlSeconds: 900,
 };
 
-export function obsidianSyncCapabilities(): SyncCapabilities {
-  return supportsLargeSyncDocuments()
+export function obsidianSyncCapabilities(large = supportsLargeSyncDocuments()): SyncCapabilities {
+  return large
     ? { ...DEFAULT_SYNC_CAPABILITIES }
     : {
       ...DEFAULT_SYNC_CAPABILITIES,

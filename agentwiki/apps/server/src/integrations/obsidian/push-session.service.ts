@@ -24,6 +24,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
+import { supportsLargeSyncDocuments } from './sync-document-limits';
 import { ObsidianCryptoService } from './obsidian-crypto.service';
 import type { StructuralPageChange } from '../../core/sync/space-revision-writer.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
@@ -49,6 +50,7 @@ const CONTENT_TREE_V2_ERROR_MAP: Record<ContentTreeErrorCode, {
   FOLDER_CYCLE: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   FOLDER_DEPTH_LIMIT: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   FOLDER_COUNT_LIMIT: { code: 'SPACE_TOO_LARGE', message: 'Document tree limit is exceeded' },
+  CONTENT_TREE_BODY_LIMIT: { code: 'SPACE_TOO_LARGE', message: 'Space body limit exceeded' },
   FOLDER_MUTATION_LIMIT: { code: 'BATCH_TOO_LARGE', message: 'Document tree mutation limit is exceeded' },
   FOLDER_PATH_TOO_LONG: { code: 'PAYLOAD_INVALID', message: 'Document tree payload is invalid' },
   FOLDER_DELETE_IMPACT_CHANGED: { code: 'BASE_STALE', message: 'Document tree base is stale' },
@@ -402,7 +404,7 @@ export class PushSessionService {
           if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
             throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
           }
-          await this.assertV2Session(session);
+          const large = await this.assertV2Session(session);
           this.assertMutableV2(session);
           const existing = await tx.pushSessionBatch.findUnique({
             where: { sessionId_batchIndex: { sessionId, batchIndex: batch.batchIndex } },
@@ -419,7 +421,7 @@ export class PushSessionService {
           if (await treeBatchHashV2(withoutHash) !== batch.batchHash) {
             throw this.v2Error('PAYLOAD_INVALID', 'Batch hash does not match its contents');
           }
-          const capabilities = this.capabilitiesV2();
+          const capabilities = this.capabilitiesV2(large);
           if (canonicalBytes(batch).byteLength > capabilities.maxBatchBytes) {
             throw this.v2Error('BATCH_TOO_LARGE', 'Batch exceeds maxBatchBytes');
           }
@@ -503,7 +505,7 @@ export class PushSessionService {
           if (!session || session.spaceId !== spaceId || session.credentialId !== principal.credentialId) {
             throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
           }
-          await this.assertV2Session(session);
+          const large = await this.assertV2Session(session);
           if (session.status === 'published' && session.result) return session.result;
           this.assertMutableV2(session);
           if (session.status !== 'ready_to_finalize') throw this.v2Error('PUSH_SESSION_INCOMPLETE', 'Push session is not ready to finalize');
@@ -540,7 +542,7 @@ export class PushSessionService {
               humanDeviceCredentialId: principal.credentialId,
             },
           });
-          if (BigInt(published.revisionBodyBytes) > BigInt(this.capabilitiesV2().maxClientTotalBodyBytes)) {
+          if (BigInt(published.revisionBodyBytes) > BigInt(this.capabilitiesV2(large).maxClientTotalBodyBytes)) {
             throw this.v2Error('SPACE_TOO_LARGE', 'Resulting Space exceeds the negotiated body limit');
           }
           await tx.pushSession.update({
@@ -556,6 +558,9 @@ export class PushSessionService {
         return result;
       } catch (error) {
         if (this.isSerializationFailure(error) && attempt < 2) continue;
+        if (error instanceof SyncApiException && error.syncCode === 'SPACE_TOO_LARGE') {
+          throw this.v2Error('SPACE_TOO_LARGE', 'Resulting Space exceeds the negotiated body limit');
+        }
         if (error instanceof ContentTreeError) {
           throw this.mapContentTreeErrorV2(error);
         }
@@ -1045,8 +1050,10 @@ export class PushSessionService {
     return this.capabilityService().hash();
   }
 
-  private capabilitiesV2(): SyncCapabilities {
-    return this.capabilityService().capabilitiesV2();
+  private capabilitiesV2(large?: boolean): SyncCapabilities {
+    return large === undefined
+      ? this.capabilityService().capabilitiesV2()
+      : this.capabilityService().capabilitiesV2(large);
   }
 
   private async capabilityHashV2(): Promise<string> {
@@ -1092,9 +1099,10 @@ export class PushSessionService {
     if (session.protocolVersion !== '2') {
       throw this.v2Error('PUSH_SESSION_NOT_FOUND', 'Push session not found');
     }
-    if (session.capabilitiesHash !== await this.capabilityHashV2()) {
-      throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
-    }
+    const requestedLarge = supportsLargeSyncDocuments();
+    if (session.capabilitiesHash === await this.capabilityHashV2()) return requestedLarge;
+    if (session.capabilitiesHash === await this.capabilityService().hashV2(!requestedLarge)) return !requestedLarge;
+    throw this.v2Error('CAPABILITIES_CHANGED', 'Server capabilities have changed');
   }
 
   private assertV2IdempotencyBinding(

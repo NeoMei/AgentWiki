@@ -1,4 +1,5 @@
 import { PushSessionService } from './push-session.service';
+import { SyncCapabilitiesService } from './sync-capabilities.service';
 import {
   canonicalBytes,
   confirmationHash,
@@ -531,6 +532,23 @@ describe('PushSessionService graph lifecycle', () => {
 });
 
 describe('PushSessionService Sync Protocol v2', () => {
+  it('recovers a published legacy receipt after a client negotiates large documents', async () => {
+    const result = { protocolVersion: '2', status: 'published', revision: 'sealed-revision' };
+    const capabilities = new SyncCapabilitiesService({} as any);
+    const session = {
+      protocolVersion: '2', spaceId: 'space-1', credentialFamilyId: 'family-1',
+      credentialId: 'credential-1', status: 'published', result, batches: [],
+      expiresAt: new Date(Date.now() + 60_000), capabilitiesHash: await capabilities.hashV2(false),
+    };
+    const prisma = { pushSession: { findUnique: jest.fn().mockResolvedValue(session) } };
+    const service = new PushSessionService(prisma as any, {} as any, {} as any, {} as any,
+      undefined, undefined, capabilities);
+
+    await expect(service.getV2({
+      credentialFamilyId: 'family-1', credentialId: 'credential-1',
+    } as any, 'space-1', 'session-1')).resolves.toMatchObject({ status: 'published', result });
+  });
+
   const principal = {
     userId: 'user-1', platformRole: 'super_admin' as const,
     credentialId: 'credential-1', credentialFamilyId: 'family-1',
