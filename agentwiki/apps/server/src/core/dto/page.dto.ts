@@ -1,5 +1,5 @@
 import { NON_BLANK_PAGE_TITLE } from '../page/page-title';
-import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
+import { IsPageContentSize } from './page-content.validator';
 import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsISO8601, IsInt, IsString, IsOptional, IsIn, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested, registerDecorator, type ValidationArguments } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { IsPageTemplateCreateShape } from './page-template-create.validator';
@@ -48,7 +48,7 @@ export class CreatePageDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(PAGE_CONTENT_MAX_LENGTH)
+  @IsPageContentSize()
   content?: string;
 
   @IsString()
@@ -125,7 +125,7 @@ export class UpdatePageDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(PAGE_CONTENT_MAX_LENGTH)
+  @IsPageContentSize()
   content?: string;
 
   @PreserveRawInput()

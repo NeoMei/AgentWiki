@@ -36,19 +36,10 @@ const allowedLocalPrepack = 'pnpm build && pnpm test && pnpm verify:sync-v3-buil
 
 async function comparablePackageManifest(directory, side) {
   const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));
-  if (side === 'local') {
-    assert.equal(
-      manifest.scripts?.prepack,
-      allowedLocalPrepack,
-      'local protocol manifest has an unexpected prepack script',
-    );
+  const prepack = manifest.scripts?.prepack;
+  if (side === 'local' || prepack !== undefined) {
+    assert.equal(prepack, allowedLocalPrepack, `${side} protocol manifest has an unexpected prepack script`);
     delete manifest.scripts.prepack;
-  } else {
-    assert.equal(
-      manifest.scripts?.prepack,
-      undefined,
-      'registry protocol manifest unexpectedly has a prepack script',
-    );
   }
   return manifest;
 }
@@ -100,8 +91,8 @@ export async function verifyPublishedProtocolParity({ registryUrl }) {
     throw new Error('Protocol parity registry must be an HTTP(S) URL without credentials');
   }
   const manifest = JSON.parse(await readFile(join(protocolRoot, 'package.json'), 'utf8'));
-  if (manifest.name !== '@neomei/agentwiki-sync-protocol' || manifest.version !== '0.6.1') {
-    throw new Error('Protocol parity is pinned to immutable @neomei/agentwiki-sync-protocol@0.6.1');
+  if (manifest.name !== '@neomei/agentwiki-sync-protocol' || manifest.version !== '0.6.2') {
+    throw new Error('Protocol parity is pinned to immutable @neomei/agentwiki-sync-protocol@0.6.2');
   }
   const temporaryRoot = await mkdtemp(join(tmpdir(), 'agentwiki-protocol-parity-'));
   try {

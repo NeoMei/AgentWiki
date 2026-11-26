@@ -20,7 +20,6 @@ import {
   BlobChunkReceiptV3Schema,
   CompleteBlobRequestV3Schema,
   CompletedBlobV3Schema,
-  CreateTreePushSessionRequestV3Schema,
   CreateTreePushSessionResponseV3Schema,
   DeltaQuerySchema,
   SnapshotQuerySchema,
@@ -49,7 +48,7 @@ import { SyncNoStoreInterceptor } from './sync-no-store.interceptor';
 import { SyncV3BootstrapService } from './sync-v3-bootstrap.service';
 import { SyncV3RevisionService } from './sync-v3-revision.service';
 import { SyncV3BlobService } from './sync-v3-blob.service';
-import { SyncV3PushSessionService } from './sync-v3-push-session.service';
+import { parseSyncV3PushSessionRequest, SyncV3PushSessionService } from './sync-v3-push-session.service';
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -86,10 +85,9 @@ export class SyncV3Controller {
     @Req() request: { user: HumanDevicePrincipal },
   ) {
     this.assertEmptyQuery(query);
-    const parsed = CreateTreePushSessionRequestV3Schema.safeParse(body);
-    if (!parsed.success) throw this.invalid('Invalid v3 Push session request');
+    const input = parseSyncV3PushSessionRequest(body);
     return CreateTreePushSessionResponseV3Schema.parse(await this.pushSessions.create(
-      request.user, this.parseSpaceId(spaceValue), parsed.data,
+      request.user, this.parseSpaceId(spaceValue), input,
     ));
   }
 

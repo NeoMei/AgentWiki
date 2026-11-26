@@ -1,4 +1,5 @@
 import { PushSessionService } from './push-session.service';
+import { SyncCapabilitiesService } from './sync-capabilities.service';
 import {
   canonicalBytes,
   confirmationHash,
@@ -531,6 +532,53 @@ describe('PushSessionService graph lifecycle', () => {
 });
 
 describe('PushSessionService Sync Protocol v2', () => {
+  it('recovers a lost create response after an older V2 client upgrades', async () => {
+    const capabilities = new SyncCapabilitiesService({} as any);
+    const input = {
+      protocolVersion: '2' as const, baseRevision: '0',
+      idempotencyKey: '31111111-1111-4111-8111-111111111111',
+      capabilitiesHash: await capabilities.hashV2(false), confirmationHash: 'a'.repeat(64),
+      confirmationByteLength: 1, changeCount: 0, totalBodyBytes: 0,
+    };
+    const existing = {
+      ...input, id: 'legacy-session', baseRevisionId: input.baseRevision,
+      userId: principal.userId, spaceId: 'space-1', credentialId: principal.credentialId,
+      credentialFamilyId: principal.credentialFamilyId, totalBodyBytes: 0n,
+      status: 'ready_to_finalize', expiresAt: new Date(Date.now() + 60_000),
+    };
+    const tx = {
+      pushSession: { findUnique: jest.fn().mockResolvedValue(existing), create: jest.fn() },
+      space: { findUnique: jest.fn().mockResolvedValue({ deletedAt: null }) },
+      spaceMember: { findUnique: jest.fn().mockResolvedValue({ role: 'owner' }) },
+    };
+    const prisma = { $transaction: (callback: (value: unknown) => unknown) => callback(tx) };
+    const service = new PushSessionService(prisma as any, {} as any, {
+      lockSyncMutationSpace: async () => tx,
+    } as any, {} as any, undefined, undefined, capabilities);
+
+    await expect(service.createV2({
+      ...principal, deviceId: 'device-1', vaultId: 'vault-1', status: 'active',
+    }, 'space-1', input)).resolves.toMatchObject({ sessionId: 'legacy-session' });
+    expect(tx.pushSession.create).not.toHaveBeenCalled();
+  });
+
+  it('recovers a published legacy receipt after a client negotiates large documents', async () => {
+    const result = { protocolVersion: '2', status: 'published', revision: 'sealed-revision' };
+    const capabilities = new SyncCapabilitiesService({} as any);
+    const session = {
+      protocolVersion: '2', spaceId: 'space-1', credentialFamilyId: 'family-1',
+      credentialId: 'credential-1', status: 'published', result, batches: [],
+      expiresAt: new Date(Date.now() + 60_000), capabilitiesHash: await capabilities.hashV2(false),
+    };
+    const prisma = { pushSession: { findUnique: jest.fn().mockResolvedValue(session) } };
+    const service = new PushSessionService(prisma as any, {} as any, {} as any, {} as any,
+      undefined, undefined, capabilities);
+
+    await expect(service.getV2({
+      credentialFamilyId: 'family-1', credentialId: 'credential-1',
+    } as any, 'space-1', 'session-1')).resolves.toMatchObject({ status: 'published', result });
+  });
+
   const principal = {
     userId: 'user-1', platformRole: 'super_admin' as const,
     credentialId: 'credential-1', credentialFamilyId: 'family-1',
@@ -581,7 +629,7 @@ describe('PushSessionService Sync Protocol v2', () => {
         pushSessionBatch: { findUnique: jest.fn(), deleteMany: jest.fn() },
         pushSessionChange: { deleteMany: jest.fn() },
       };
-      const prisma: any = phase === 'create' || phase === 'get'
+      const prisma: any = phase === 'get'
         ? { pushSession: { findUnique: jest.fn().mockResolvedValue(session) } }
         : phase === 'finalize'
           ? {

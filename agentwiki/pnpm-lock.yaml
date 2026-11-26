@@ -336,7 +336,7 @@ importers:
         version: 1.32.1(zod@3.25.76)
       '@neomei/agentwiki-sync-protocol':
         specifier: 0.6.1
-        version: link:../sync-protocol
+        version: 0.6.1
       zod:
         specifier: ^3.25.76
         version: 3.25.76
@@ -1301,6 +1301,9 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@neomei/agentwiki-sync-protocol@0.6.1':
+    resolution: {integrity: sha512-W0uwdPGysZVOMSNIDIfGus5YqAwNL0Ml0DYaTpkuzlY0oITw8SAzII9WXevEGR2rJYVxNoRLzH0GBBpdYK+7LQ==}
 
   '@nestjs/cli@11.0.24':
     resolution: {integrity: sha512-aIHxQLSYtXShifA3zwWIeznEsZnNa3Iz2QRykFj+sl9IcbERBHr5nH87FRgywM+He3NxoF5WazHfR8FsmVeWxw==}
@@ -6635,6 +6638,10 @@ snapshots:
       '@emnapi/runtime': 1.10.0
       '@tybys/wasm-util': 0.10.3
     optional: true
+
+  '@neomei/agentwiki-sync-protocol@0.6.1':
+    dependencies:
+      zod: 3.25.76
 
   '@nestjs/cli@11.0.24(@types/node@24.13.3)':
     dependencies:

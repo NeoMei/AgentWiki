@@ -367,14 +367,14 @@ describe('CollaborationGateway authentication', () => {
   });
 
   it('keeps the transport open for a valid page with escaped text and variation selectors', () => {
-    const content = '\u0001\uFE0F'.repeat(200_000);
+    const content = '\u0001'.repeat(10 * 1024 * 1024);
     const payload = '42/collaboration,' + JSON.stringify(['contentChange', { pageId: 'page-1', content, version: 42 }]);
     const options = Reflect.getMetadata(GATEWAY_OPTIONS, CollaborationGateway);
 
     expect(options.maxHttpBufferSize).toBeGreaterThanOrEqual(Buffer.byteLength(payload));
   });
 
-  it('applies the page character limit independently of UTF-16 length', async () => {
+  it('applies the UTF-8 byte limit to multilingual content', async () => {
     const broadcast = jest.fn();
     const client = {
       id: 'socket-long-page',
@@ -382,7 +382,7 @@ describe('CollaborationGateway authentication', () => {
       to: jest.fn().mockReturnValue({ emit: broadcast }),
       rooms: new Set(['page-1']),
     } as any;
-    const content = '😀'.repeat(200_000);
+    const content = '😀'.repeat(10 * 1024 * 1024 / 4);
 
     await gateway.handleContentChange(client, { pageId: 'page-1', content, version: 42 });
     await gateway.handleContentChange(client, { pageId: 'page-1', content: content + 'a', version: 43 });

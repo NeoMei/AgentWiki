@@ -9,6 +9,7 @@ import {
   type TreePushBatchV3,
   type TreePushChangeV3,
 } from '@neomei/agentwiki-sync-protocol';
+import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncV3PushSessionService } from './sync-v3-push-session.service';
 
 const existingHash = 'a'.repeat(64);
@@ -216,6 +217,31 @@ async function stageChanges(
 }
 
 describe('SyncV3PushSessionService', () => {
+  it('recovers a lost create response after an older V3 client upgrades', async () => {
+    const h = harness();
+    const created = await h.service.create(principal(), 'space-1', request());
+    h.capabilities.hashV3.mockImplementation(async (large?: boolean) =>
+      large === false ? capabilityHash : 'f'.repeat(64));
+
+    await expect(h.service.create(principal(), 'space-1', request()))
+      .resolves.toMatchObject({ sessionId: created.sessionId });
+    expect(h.sessions).toHaveLength(1);
+  });
+
+  it('stages a 10 MiB page with the opted-in service capabilities', async () => {
+    const h = harness();
+    const capabilities = new SyncCapabilitiesService({} as any);
+    h.capabilities.capabilitiesV3.mockImplementation(() => capabilities.capabilitiesV3());
+    const body = '😀'.repeat(10 * 1024 * 1024 / 4);
+    const change: TreePushChangeV3 = { operation: 'upsert_page', page: {
+      pageId: 'large-page', folderId: null, path: 'pages/Large.md', title: 'Large', body,
+      contentHash: await contentHash(body), updatedAt: '2026-09-04T00:00:00.000Z', referencedAttachmentIds: [],
+    } };
+
+    await stageChanges(h, [change], { folders: [], pages: [], attachments: [] });
+    expect(h.sessions[0]).toMatchObject({ status: 'ready_to_finalize', receivedBodyBytes: 10_485_760n });
+  });
+
   it('returns only missing content hashes in canonical order and replays the exact create binding', async () => {
     const h = harness();
     const input = request({

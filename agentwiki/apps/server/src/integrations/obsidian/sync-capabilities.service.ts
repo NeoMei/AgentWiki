@@ -6,7 +6,8 @@ import {
   treeCapabilitiesHashV3,
   TreeSyncCapabilitiesV3Schema,
 } from '@neomei/agentwiki-sync-protocol';
-import { DEFAULT_SYNC_CAPABILITIES } from './obsidian-crypto.service';
+import { obsidianSyncCapabilities } from './obsidian-crypto.service';
+import { LEGACY_SYNC_DOCUMENT_TREE_BYTES, supportsLargeSyncDocuments } from './sync-document-limits';
 import { PrismaService } from '../../database/prisma.service';
 import { SyncApiException } from './sync-error';
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
@@ -19,33 +20,35 @@ export class SyncCapabilitiesService {
   ) {}
 
   capabilities() {
-    return { ...DEFAULT_SYNC_CAPABILITIES };
+    return obsidianSyncCapabilities();
   }
 
   async hash(): Promise<string> {
-    return capabilitiesHash(DEFAULT_SYNC_CAPABILITIES);
+    return capabilitiesHash(this.capabilities());
   }
 
-  capabilitiesV2() {
+  capabilitiesV2(large = supportsLargeSyncDocuments()) {
+    const capabilities = obsidianSyncCapabilities(large);
     return {
-      ...DEFAULT_SYNC_CAPABILITIES,
+      ...capabilities,
       maxBatchItems: TREE_SYNC_V2_LIMITS.maxPushChanges,
       maxChangeCount: TREE_SYNC_V2_LIMITS.maxPushChanges,
-      maxClientTotalBodyBytes: TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes,
+      maxClientTotalBodyBytes: large
+        ? TREE_SYNC_V2_LIMITS.maxDocumentTreeBytes : LEGACY_SYNC_DOCUMENT_TREE_BYTES,
       maxClientSpaceFolders: TREE_SYNC_V2_LIMITS.maxClientSpaceFolders,
       maxSnapshotObjects: TREE_SYNC_V2_LIMITS.maxSnapshotObjects,
       maxDeltaItems: TREE_SYNC_V2_LIMITS.maxDeltaItems,
-      maxResponseBytes: Math.min(DEFAULT_SYNC_CAPABILITIES.maxResponseBytes, TREE_SYNC_V2_LIMITS.maxResponseBytes),
+      maxClientManifestBytes: capabilities.maxResponseBytes,
     };
   }
 
-  async hashV2(): Promise<string> {
-    return capabilitiesHash(this.capabilitiesV2());
+  async hashV2(large?: boolean): Promise<string> {
+    return capabilitiesHash(this.capabilitiesV2(large));
   }
 
-  capabilitiesV3() {
+  capabilitiesV3(large?: boolean) {
     return TreeSyncCapabilitiesV3Schema.parse({
-      ...this.capabilitiesV2(),
+      ...this.capabilitiesV2(large),
       maxAttachmentBytes: TREE_SYNC_V3_HARD_LIMITS.maxAttachmentBytes,
       maxRevisionAttachments: TREE_SYNC_V3_HARD_LIMITS.maxRevisionAttachments,
       maxTransferBlobBytes: TREE_SYNC_V3_HARD_LIMITS.maxTransferBlobBytes,
@@ -60,8 +63,8 @@ export class SyncCapabilitiesService {
     });
   }
 
-  async hashV3(): Promise<string> {
-    return treeCapabilitiesHashV3(this.capabilitiesV3());
+  async hashV3(large?: boolean): Promise<string> {
+    return treeCapabilitiesHashV3(this.capabilitiesV3(large));
   }
 
   async assertV1Compatible(spaceId: string): Promise<void> {

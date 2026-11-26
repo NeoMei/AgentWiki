@@ -1,8 +1,7 @@
 import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, MessageBody, ConnectedSocket } from '@nestjs/websockets';
 import { OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
-import { maxLength } from 'class-validator';
+import { exceedsPageContentLimit, PAGE_CONTENT_JSON_MAX_BYTES } from '@agentwiki/shared';
 import { JwtService } from '@nestjs/jwt';
 import { Logger } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
@@ -20,9 +19,6 @@ const SOCKET_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http:
   .map((origin) => origin.trim())
   .filter(Boolean);
 const MAX_PAGE_ROOMS_PER_SOCKET = 10;
-// A character can take six bytes when escaped in JSON and carry a three-byte
-// variation selector. Reserve extra bytes for the Socket.IO event envelope.
-const MAX_PAGE_EVENT_BYTES = PAGE_CONTENT_MAX_LENGTH * 9 + 1024;
 const MAX_SOCKETS_PER_USER = 20;
 const ROOM_AUTHORIZATION_LEASE_MS = 1_000;
 
@@ -43,7 +39,7 @@ interface CursorPosition {
     origin: SOCKET_ORIGINS,
     credentials: true,
   },
-  maxHttpBufferSize: MAX_PAGE_EVENT_BYTES,
+  maxHttpBufferSize: PAGE_CONTENT_JSON_MAX_BYTES,
   namespace: '/collaboration',
 })
 export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
@@ -351,7 +347,7 @@ export class CollaborationGateway implements OnGatewayConnection, OnGatewayDisco
       client.emit('collaborationError', { code: 'EVENT_RATE_LIMITED' });
       return;
     }
-    if (body.content.length > PAGE_CONTENT_MAX_LENGTH && !maxLength(body.content, PAGE_CONTENT_MAX_LENGTH)) return;
+    if (exceedsPageContentLimit(body.content)) return;
     const pages = this.pageContentOrder.get(client) ?? new Map();
     this.pageContentOrder.set(client, pages);
     const order = pages.get(body.pageId) ?? { received: 0, sent: 0 };

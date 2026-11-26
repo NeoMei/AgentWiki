@@ -197,7 +197,7 @@ export class SyncV1Controller {
     const page = await this.revisions.deltaPage(spaceId, from, limit, afterPageId);
     const deltaRows = page.items ?? [];
     const items = [];
-    let totalBytes = 0;
+    let totalBytes = 1024; // Delta metadata and continuation cursor.
     let lastPageId = page.nextPageId;
     const maxResponseBytes = this.capabilities.capabilities().maxResponseBytes;
     for (const row of deltaRows) {
@@ -225,15 +225,9 @@ export class SyncV1Controller {
           };
         }
       }
-      const itemPageId = item.operation === 'upsert' ? item.page.pageId : item.pageId;
-      const estimate = item.operation === 'upsert'
-        ? new TextEncoder().encode(item.page.body).byteLength
-          + new TextEncoder().encode(item.page.title).byteLength
-          + new TextEncoder().encode(item.page.contentHash).byteLength
-          + new TextEncoder().encode(itemPageId).byteLength
-          + 128
-        : new TextEncoder().encode(itemPageId).byteLength + 64;
-      if (items.length > 0 && totalBytes + estimate > maxResponseBytes) {
+      const estimate = Buffer.byteLength(JSON.stringify(item), 'utf8') + 1;
+      if (totalBytes + estimate > maxResponseBytes) {
+        if (items.length === 0) throw new SyncApiException('SPACE_TOO_LARGE', 'One delta item exceeds maxResponseBytes');
         const lastIncluded = items[items.length - 1];
         lastPageId = lastIncluded.operation === 'upsert'
           ? lastIncluded.page.pageId

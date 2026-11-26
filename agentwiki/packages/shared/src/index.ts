@@ -1,5 +1,14 @@
 export const SPACE_NAME_MAX_LENGTH = 32;
-export const PAGE_CONTENT_MAX_LENGTH = 200_000;
+export const PAGE_CONTENT_MAX_BYTES = 10 * 1024 * 1024;
+// JSON may escape one UTF-8 byte into six ASCII bytes.
+export const PAGE_CONTENT_JSON_MAX_BYTES = 64 * 1024 * 1024;
+const pageContentEncoder = new TextEncoder();
+
+export function exceedsPageContentLimit(content: string): boolean {
+  const normalized = content.replace(/\r\n?/gu, '\n');
+  return normalized.length > PAGE_CONTENT_MAX_BYTES
+    || pageContentEncoder.encode(normalized).byteLength > PAGE_CONTENT_MAX_BYTES;
+}
 
 export interface User {
   id: string;

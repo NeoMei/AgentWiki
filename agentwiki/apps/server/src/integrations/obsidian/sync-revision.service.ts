@@ -14,13 +14,14 @@ import {
 } from '../../core/sync/sync-revision-format';
 import { verifyLegacyUnifiedHistoryChain } from '../../core/sync/legacy-unified-revision-integrity';
 import { SyncApiException } from './sync-error';
+import { obsidianSyncCapabilities } from './obsidian-crypto.service';
 import {
   SyncV3AuthorityError,
   SyncV3ImmutableRevisionService,
 } from './sync-v3-immutable-revision.service';
 
 const EMPTY_REVISION_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
-const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
 
 export interface SyncHead {
   revision: string;
@@ -286,24 +287,23 @@ export class SyncRevisionService {
     }
   }
 
-  private utf8Length(value: string): number {
-    return new TextEncoder().encode(value).byteLength;
-  }
-
-  private trimByResponseBytes<T extends { pageId: string; title?: string; contentHash?: string; content?: { body?: string } }>(
+  private trimByResponseBytes<T extends { pageId: string; path: string; title: string; contentHash: string; content: { body: string }; updatedAt: Date }>(
     rows: T[],
     limit: number,
   ): { items: T[]; next: boolean } {
     const items: T[] = [];
-    let total = 0;
+    const { maxResponseBytes } = obsidianSyncCapabilities();
+    let total = 1024; // Snapshot metadata and continuation cursor.
     for (const row of rows) {
       if (items.length >= limit) return { items, next: true };
-      const estimate = this.utf8Length(row.title ?? '')
-        + this.utf8Length(row.content?.body ?? '')
-        + this.utf8Length(row.contentHash ?? '')
-        + this.utf8Length(row.pageId)
-        + 128;
-      if (items.length > 0 && total + estimate > MAX_RESPONSE_BYTES) return { items, next: true };
+      const estimate = Buffer.byteLength(JSON.stringify({
+        pageId: row.pageId, path: row.path, title: row.title, body: row.content.body,
+        contentHash: row.contentHash, updatedAt: row.updatedAt,
+      }), 'utf8') + 1;
+      if (total + estimate > maxResponseBytes) {
+        if (items.length > 0) return { items, next: true };
+        throw new SyncApiException('SPACE_TOO_LARGE', 'One snapshot item exceeds maxResponseBytes');
+      }
       items.push(row);
       total += estimate;
     }

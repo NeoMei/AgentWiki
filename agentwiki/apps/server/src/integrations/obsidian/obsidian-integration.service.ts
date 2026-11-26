@@ -11,7 +11,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../../core/security/audit.service';
 import { RedisService } from '../../database/redis.service';
 import { SyncApiException } from './sync-error';
-import { DEFAULT_SYNC_CAPABILITIES, ObsidianCryptoService } from './obsidian-crypto.service';
+import { obsidianSyncCapabilities, ObsidianCryptoService } from './obsidian-crypto.service';
 
 const INSTALLATION_TTL_MS = 10 * 60 * 1_000;
 const PROVISIONAL_TTL_MS = 10 * 60 * 1_000;
@@ -367,7 +367,7 @@ export class ObsidianIntegrationService {
       credentialStatus: 'provisional' as const,
       provisionalExpiresAt: credential.provisionalExpiresAt.toISOString(),
       user: { id: installation.user.id, displayName: installation.user.name ?? installation.user.id },
-      capabilities: DEFAULT_SYNC_CAPABILITIES,
+      capabilities: obsidianSyncCapabilities(),
     };
   }
 
@@ -384,7 +384,7 @@ export class ObsidianIntegrationService {
       credentialStatus: credential.status as 'provisional' | 'active',
       provisionalExpiresAt: credential.provisionalExpiresAt?.toISOString() ?? null,
       user: { id: credential.userId, displayName: credential.user?.name ?? credential.userId },
-      capabilities: DEFAULT_SYNC_CAPABILITIES,
+      capabilities: obsidianSyncCapabilities(),
     };
   }
 

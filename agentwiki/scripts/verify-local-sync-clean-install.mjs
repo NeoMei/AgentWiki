@@ -11,9 +11,10 @@ const protocolName = '@neomei/agentwiki-sync-protocol';
 const localSyncName = '@neomei/agentwiki-local-sync';
 const protocolManifest = JSON.parse(await readFile(join(root, 'packages', 'sync-protocol', 'package.json'), 'utf8'));
 const localSyncManifest = JSON.parse(await readFile(join(root, 'packages', 'local-sync', 'package.json'), 'utf8'));
-const expectedProtocolVersion = protocolManifest.version;
+const expectedProtocolVersion = localSyncManifest.dependencies[protocolName];
 const expectedLocalSyncVersion = localSyncManifest.version;
-const registryProtocol = process.env.AGENTWIKI_PROTOCOL_INSTALL_SOURCE === 'registry';
+const registryProtocol = process.env.AGENTWIKI_PROTOCOL_INSTALL_SOURCE === 'registry'
+  || expectedProtocolVersion !== protocolManifest.version;
 
 function pack(packageDirectory, destination) {
   execFileSync('npm', ['pack', '--pack-destination', destination], {

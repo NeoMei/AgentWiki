@@ -30,6 +30,14 @@ test('protocol registry parity compares extracted paths and bytes', async () => 
       writeFile(join(registry, 'dist/index.js'), 'export const version = 3;\n'),
     ]);
     await assert.doesNotReject(assertProtocolTreesEqual(local, registry));
+    const packedManifest = JSON.parse(await readFile(join(local, 'package.json'), 'utf8'));
+    await writeFile(join(registry, 'package.json'), JSON.stringify(packedManifest));
+    await assert.doesNotReject(assertProtocolTreesEqual(local, registry));
+    packedManifest.scripts.prepack = 'unexpected';
+    await writeFile(join(registry, 'package.json'), JSON.stringify(packedManifest));
+    await assert.rejects(assertProtocolTreesEqual(local, registry), /unexpected prepack script/u);
+    packedManifest.scripts.prepack = 'pnpm build && pnpm test && pnpm verify:sync-v3-builds';
+    await writeFile(join(registry, 'package.json'), JSON.stringify(packedManifest));
     await writeFile(join(registry, 'dist/index.js'), 'export const version = 2;\n');
     await assert.rejects(
       assertProtocolTreesEqual(local, registry),

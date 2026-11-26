@@ -1,5 +1,5 @@
 import { Transform, Type } from 'class-transformer';
-import { PAGE_CONTENT_MAX_LENGTH } from '@agentwiki/shared';
+import { IsPageContentSize } from '../core/dto/page-content.validator';
 import {
   IsIn,
   IsInt,
@@ -31,7 +31,7 @@ export class ImportPageImagesDto {
   @PreserveRawInput() @IsString() @MinLength(1) @MaxLength(100)
   targetPageId!: string;
 
-  @PreserveRawInput() @IsOptional() @IsString() @MaxLength(PAGE_CONTENT_MAX_LENGTH)
+  @PreserveRawInput() @IsOptional() @IsString() @IsPageContentSize()
   content?: string;
 }
 

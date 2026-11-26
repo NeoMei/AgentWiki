@@ -90,6 +90,7 @@ const ERROR_CODE_MAP: Record<string, { status: HttpStatus; message: string }> = 
   FOLDER_CYCLE: { status: HttpStatus.CONFLICT, message: 'Folder move would create a cycle' },
   FOLDER_DEPTH_LIMIT: { status: HttpStatus.BAD_REQUEST, message: 'Folder depth limit exceeded' },
   FOLDER_COUNT_LIMIT: { status: HttpStatus.BAD_REQUEST, message: 'Folder count limit exceeded' },
+  CONTENT_TREE_BODY_LIMIT: { status: HttpStatus.CONFLICT, message: 'Space body limit exceeded' },
   FOLDER_MUTATION_LIMIT: { status: HttpStatus.BAD_REQUEST, message: 'Folder mutation limit exceeded' },
   FOLDER_PATH_TOO_LONG: { status: HttpStatus.BAD_REQUEST, message: 'Folder path is too long' },
   CONTENT_TREE_CONFLICT: { status: HttpStatus.CONFLICT, message: 'Content tree changed; reload before retrying' },

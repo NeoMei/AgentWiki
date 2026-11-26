@@ -38,6 +38,7 @@ import type { HumanDevicePrincipal } from './human-device.guard';
 import { SyncCapabilitiesService } from './sync-capabilities.service';
 import { SyncCursorService } from './sync-cursor.service';
 import { SyncApiException } from './sync-error';
+import { LEGACY_SYNC_DOCUMENT_TREE_BYTES, LEGACY_SYNC_PAGE_BYTES, supportsLargeSyncDocuments } from './sync-document-limits';
 
 const encoder = new TextEncoder();
 
@@ -294,22 +295,30 @@ export class SyncV3RevisionService {
         afterKind = payload.objectKind;
       }
       const loaded = await this.loadRevision(tx, spaceId, revision);
+      this.assertClientBudget(loaded);
       const entries = this.snapshotEntries(loaded.manifest);
       const start = this.resumeSnapshot(entries, afterKey, afterKind);
       const metadata = this.snapshotMetadata(spaceId, loaded);
       const selected: SnapshotEntry[] = [];
       const maxBytes = this.maxResponseBytes();
+      let itemsBytes = 0;
+      const includedKinds = new Set<SnapshotEntry['objectKind']>();
       for (let index = start; index < entries.length && selected.length < limit; index += 1) {
-        const candidate = [...selected, entries[index]!];
+        const entry = entries[index]!;
         const nextCursor = index + 1 < entries.length
-          ? this.snapshotCursor(spaceId, loaded.revision, candidate[candidate.length - 1]!)
+          ? this.snapshotCursor(spaceId, loaded.revision, entry)
           : null;
-        const response = this.snapshotEnvelope(metadata, candidate, nextCursor);
-        if (Buffer.byteLength(JSON.stringify(response), 'utf8') > maxBytes) {
+        const item = entry.objectKind === 'folder' ? entry.folder
+          : entry.objectKind === 'page' ? entry.page : entry.attachment;
+        const itemBytes = Buffer.byteLength(JSON.stringify(item), 'utf8') + (includedKinds.has(entry.objectKind) ? 1 : 0);
+        const envelopeBytes = Buffer.byteLength(JSON.stringify(this.snapshotEnvelope(metadata, [], nextCursor)), 'utf8');
+        if (itemsBytes + itemBytes + envelopeBytes > maxBytes) {
           if (selected.length === 0) this.itemTooLarge('snapshot');
           break;
         }
-        selected.push(entries[index]!);
+        selected.push(entry);
+        includedKinds.add(entry.objectKind);
+        itemsBytes += itemBytes;
       }
       const consumed = start + selected.length;
       const nextCursor = consumed < entries.length
@@ -364,17 +373,21 @@ export class SyncV3RevisionService {
       const metadata = this.deltaMetadata(spaceId, from.revision, to);
       const selected: typeof keyed = [];
       const maxBytes = this.maxResponseBytes();
+      this.assertClientBudget(to);
+      let itemsBytes = 0;
       for (let index = start; index < keyed.length && selected.length < limit; index += 1) {
-        const candidate = [...selected, keyed[index]!];
+        const entry = keyed[index]!;
         const nextCursor = index + 1 < keyed.length
-          ? this.deltaCursor(spaceId, from.revision, to.revision, candidate[candidate.length - 1]!)
+          ? this.deltaCursor(spaceId, from.revision, to.revision, entry)
           : null;
-        const response = { ...metadata, items: candidate.map((entry) => entry.item), nextCursor };
-        if (Buffer.byteLength(JSON.stringify(response), 'utf8') > maxBytes) {
+        const itemBytes = Buffer.byteLength(JSON.stringify(entry.item), 'utf8') + (selected.length > 0 ? 1 : 0);
+        const envelopeBytes = Buffer.byteLength(JSON.stringify({ ...metadata, items: [], nextCursor }), 'utf8');
+        if (itemsBytes + itemBytes + envelopeBytes > maxBytes) {
           if (selected.length === 0) this.itemTooLarge('delta');
           break;
         }
-        selected.push(keyed[index]!);
+        selected.push(entry);
+        itemsBytes += itemBytes;
       }
       const consumed = start + selected.length;
       const nextCursor = consumed < keyed.length
@@ -705,6 +718,17 @@ export class SyncV3RevisionService {
         objectKind: 'attachment', canonicalKey: `${pathKey(attachment.path)}\0${attachment.attachmentId}`, attachment,
       })),
     ];
+  }
+
+  private assertClientBudget(revision: {
+    revisionBodyBytes: number;
+    manifest: { pages: ReadonlyArray<{ body: string }> };
+  }) {
+    if (supportsLargeSyncDocuments()) return;
+    if (revision.revisionBodyBytes > LEGACY_SYNC_DOCUMENT_TREE_BYTES
+      || revision.manifest.pages.some((page) => Buffer.byteLength(page.body, 'utf8') > LEGACY_SYNC_PAGE_BYTES)) {
+      throw new SyncApiException('SYNC_PROTOCOL_UPGRADE_REQUIRED', 'Upgrade the plugin to sync this Space', undefined, '3');
+    }
   }
 
   private snapshotEnvelope(
