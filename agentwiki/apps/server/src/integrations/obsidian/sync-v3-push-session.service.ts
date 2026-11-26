@@ -34,7 +34,7 @@ import { AuthorizationService } from '../../core/authorization/authorization.ser
 import { SyncV3RevisionWriterService } from '../../core/sync/sync-v3-revision-writer.service';
 import { SearchService } from '../../core/search/search.service';
 import { GraphMaintenance } from '../../knowledge-graph/graph-maintenance';
-import { ContentTreeService } from '../../content-tree/content-tree.service';
+import { ContentTreeService, MUTATION_TRANSACTION_TIMEOUT_MS } from '../../content-tree/content-tree.service';
 import { PrismaService } from '../../database/prisma.service';
 import { RedisService } from '../../database/redis.service';
 import type { HumanDevicePrincipal } from './human-device.guard';
@@ -312,7 +312,10 @@ export class SyncV3PushSessionService {
         },
       });
       return this.batchResponse(updated, batchRow);
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      timeout: MUTATION_TRANSACTION_TIMEOUT_MS,
+    }));
     if (result === expired) throw this.error('PUSH_SESSION_EXPIRED', 'Push session expired');
     return result;
   }
